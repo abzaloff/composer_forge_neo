@@ -930,6 +930,11 @@
                 radius: 70,
                 name: "Circle"
             });
+        } else if (shapeType === "triangle") {
+            shape = new window.fabric.Polygon(buildRegularPolygonPoints(3, 82), {
+                ...base,
+                name: "Triangle"
+            });
         } else if (shapeType === "pentagon") {
             shape = new window.fabric.Polygon(buildRegularPolygonPoints(5, 80), {
                 ...base,
@@ -939,6 +944,11 @@
             shape = new window.fabric.Polygon(buildRegularPolygonPoints(6, 80), {
                 ...base,
                 name: "Hexagon"
+            });
+        } else if (shapeType === "octagon") {
+            shape = new window.fabric.Polygon(buildRegularPolygonPoints(8, 80), {
+                ...base,
+                name: "Octagon"
             });
         }
 
@@ -995,6 +1005,11 @@
         }
 
         currentTextColor = normalized;
+        drawColor = normalized;
+        const unifiedColorInput = document.getElementById("composer-draw-color");
+        if (unifiedColorInput) {
+            unifiedColorInput.value = normalized;
+        }
 
         const active = canvas?.getActiveObject();
         if (!active) {
@@ -1029,7 +1044,7 @@
     }
 
     function syncTextColorControlFromSelection() {
-        const colorInput = document.getElementById("composer-text-color");
+        const colorInput = document.getElementById("composer-draw-color");
         if (!colorInput || !canvas) return;
 
         const active = canvas.getActiveObject();
@@ -1040,7 +1055,11 @@
         if (!normalized) return;
 
         currentTextColor = normalized;
+        drawColor = normalized;
         colorInput.value = normalized;
+        if (drawingTool === "brush" && canvas?.isDrawingMode) {
+            applyDrawingBrush();
+        }
     }
 
     function getOpacityPercentFromObject(obj) {
@@ -1951,6 +1970,7 @@
         if (overlay.dataset.bound === "1") return;
 
         drawColor = normalizeHexColor(colorInput.value) || drawColor;
+        currentTextColor = drawColor;
         drawWidth = Math.max(1, Number(widthInput.value) || drawWidth);
         drawOpacity = Math.max(1, Math.min(100, Number(opacityInput.value) || drawOpacity));
         drawSoftness = Math.max(0, Math.min(50, Number(softnessInput.value) || drawSoftness));
@@ -1967,8 +1987,9 @@
         eraserBtn.addEventListener("click", () => setDrawingTool("eraser"));
 
         colorInput.addEventListener("input", () => {
-            drawColor = normalizeHexColor(colorInput.value) || drawColor;
-            colorInput.value = drawColor;
+            const normalized = normalizeHexColor(colorInput.value);
+            if (!normalized) return;
+            setTextColor(normalized);
             if (drawingTool === "brush" && canvas?.isDrawingMode) {
                 applyDrawingBrush();
             }
@@ -2908,12 +2929,13 @@
 
             const clearBtn = document.getElementById("composer-clear-btn");
             const addTextBtn = document.getElementById("composer-add-text-btn");
+            const addTriangleBtn = document.getElementById("composer-add-triangle-btn");
             const addRectBtn = document.getElementById("composer-add-rect-btn");
             const addCircleBtn = document.getElementById("composer-add-circle-btn");
             const addPentagonBtn = document.getElementById("composer-add-pentagon-btn");
             const addHexagonBtn = document.getElementById("composer-add-hexagon-btn");
+            const addOctagonBtn = document.getElementById("composer-add-octagon-btn");
             const removeBgBtn = document.getElementById("composer-remove-bg-btn");
-            const textColorInput = document.getElementById("composer-text-color");
             const layerUpBtn = document.getElementById("composer-layer-up-btn");
             const layerDownBtn = document.getElementById("composer-layer-down-btn");
             const flipXBtn = document.getElementById("composer-flip-x-btn");
@@ -2934,11 +2956,6 @@
                 setStatus("Scene cleared");
             });
 
-            if (textColorInput) {
-                currentTextColor = normalizeHexColor(textColorInput.value) || currentTextColor;
-                textColorInput.addEventListener("input", () => setTextColor(textColorInput.value));
-            }
-
             addTextBtn?.addEventListener("click", () => {
                 disableDrawingMode(true);
                 const textValue = window.prompt("Enter text", "Your text here");
@@ -2949,6 +2966,10 @@
                 addTextToCanvas(textValue);
             });
 
+            addTriangleBtn?.addEventListener("click", () => {
+                disableDrawingMode(true);
+                addShapeToCanvas("triangle");
+            });
             addRectBtn?.addEventListener("click", () => {
                 disableDrawingMode(true);
                 addShapeToCanvas("rect");
@@ -2964,6 +2985,10 @@
             addHexagonBtn?.addEventListener("click", () => {
                 disableDrawingMode(true);
                 addShapeToCanvas("hexagon");
+            });
+            addOctagonBtn?.addEventListener("click", () => {
+                disableDrawingMode(true);
+                addShapeToCanvas("octagon");
             });
 
             removeBgBtn?.addEventListener("click", () => {

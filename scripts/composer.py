@@ -26,6 +26,11 @@ COMPOSER_HTML = """
         <button id="composer-add-text-btn" class="composer-btn composer-icon-btn" type="button" title="Add Text" aria-label="Add Text">
             <span class="composer-text-icon">T</span>
         </button>
+        <button id="composer-add-triangle-btn" class="composer-btn" type="button" title="Triangle">
+            <svg class="composer-shape-icon" viewBox="0 0 16 16" aria-hidden="true">
+                <polygon points="8,2.5 13,12.5 3,12.5"></polygon>
+            </svg>
+        </button>
         <button id="composer-add-rect-btn" class="composer-btn" type="button" title="Square">
             <svg class="composer-shape-icon" viewBox="0 0 16 16" aria-hidden="true">
                 <rect x="3" y="3" width="10" height="10"></rect>
@@ -44,6 +49,11 @@ COMPOSER_HTML = """
         <button id="composer-add-hexagon-btn" class="composer-btn" type="button" title="Hexagon">
             <svg class="composer-shape-icon" viewBox="0 0 16 16" aria-hidden="true">
                 <polygon points="4,3.5 12,3.5 14,8 12,12.5 4,12.5 2,8"></polygon>
+            </svg>
+        </button>
+        <button id="composer-add-octagon-btn" class="composer-btn" type="button" title="Octagon">
+            <svg class="composer-shape-icon" viewBox="0 0 16 16" aria-hidden="true">
+                <polygon points="5,2.5 11,2.5 13.5,5 13.5,11 11,13.5 5,13.5 2.5,11 2.5,5"></polygon>
             </svg>
         </button>
         <button id="composer-clear-btn" class="composer-btn" type="button">Clear</button>
@@ -103,9 +113,6 @@ COMPOSER_HTML = """
             <button id="composer-redo-btn" class="composer-btn composer-history-btn" type="button" title="Redo" aria-label="Redo">
                 <span class="composer-history-glyph" aria-hidden="true">&#8631;</span>
             </button>
-            <label class="composer-btn composer-color-only" for="composer-text-color" title="Color" aria-label="Color">
-                <input id="composer-text-color" class="composer-color-picker" type="color" value="#ffffff">
-            </label>
         </div>
 
         <div id="composer-opacity-overlay" class="composer-opacity-overlay">

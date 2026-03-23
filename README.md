@@ -18,8 +18,8 @@ Composer extension for Forge/Neo that helps build scene layouts before Img2Img/I
 - Add and transform images on canvas
 - Remove image background (`Remove BG`) using `rembg`
 - Add editable text
-- Add geometric shapes: square, circle, pentagon, hexagon
-- Change fill color for text and shapes (`Color`)
+- Add geometric shapes: triangle, square, circle, pentagon, hexagon, octagon
+- Shared color picker for brush and text/shapes
 - Layer ordering (`up` / `down`)
 - Flip selected objects (horizontal / vertical)
 - Export scene to PNG
