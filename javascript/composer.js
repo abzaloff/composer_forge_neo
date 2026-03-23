@@ -1446,6 +1446,36 @@
         if (eraserBtn) eraserBtn.classList.toggle("is-active", eraserActive);
     }
 
+    function setDrawWidth(nextWidth) {
+        const widthInput = document.getElementById("composer-draw-width");
+        const min = Math.max(1, Number(widthInput?.min) || 1);
+        const max = Math.max(min, Number(widthInput?.max) || 200);
+        const clamped = Math.max(min, Math.min(max, Math.round(Number(nextWidth) || drawWidth)));
+        if (clamped === drawWidth) return false;
+
+        drawWidth = clamped;
+        if (widthInput) widthInput.value = String(drawWidth);
+        updateDrawCursorSize();
+        updateDrawingControlsState();
+        if (canvas?.isDrawingMode || eraserFallbackActive) applyDrawingBrush();
+        return true;
+    }
+
+    function adjustDrawWidthByWheel(deltaY) {
+        const widthInput = document.getElementById("composer-draw-width");
+        const rawStep = Number(widthInput?.step);
+        const step = Number.isFinite(rawStep) && rawStep > 0 ? rawStep : 1;
+        const direction = deltaY < 0 ? 1 : -1;
+        const wheelTicks = Math.max(1, Math.round(Math.abs(Number(deltaY) || 0) / 100));
+        const speedMultiplier = 6;
+        const deltaWidth = wheelTicks * step * speedMultiplier;
+        const changed = setDrawWidth(drawWidth + direction * deltaWidth);
+        if (changed) {
+            setStatus(`Draw size: ${drawWidth}`);
+        }
+        return changed;
+    }
+
     function updateDrawCursorSize() {
         if (!drawCursorEl) return;
         const zoom = canvas?.getZoom ? (canvas.getZoom() || 1) : 1;
@@ -1931,10 +1961,7 @@
         });
 
         widthInput.addEventListener("input", () => {
-            drawWidth = Math.max(1, Number(widthInput.value) || drawWidth);
-            updateDrawCursorSize();
-            updateDrawingControlsState();
-            if (canvas?.isDrawingMode) applyDrawingBrush();
+            setDrawWidth(Number(widthInput.value));
         });
 
         opacityInput.addEventListener("input", () => {
@@ -2828,6 +2855,13 @@
                 if (middlePanActive) {
                     opt.e.preventDefault();
                     opt.e.stopPropagation();
+                    return;
+                }
+                const drawToolActive = drawingTool === "brush" || drawingTool === "eraser";
+                if (opt.e.altKey && drawToolActive) {
+                    opt.e.preventDefault();
+                    opt.e.stopPropagation();
+                    adjustDrawWidthByWheel(opt.e.deltaY || 0);
                     return;
                 }
                 if (!opt.e.ctrlKey) return;
