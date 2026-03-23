@@ -127,6 +127,7 @@ COMPOSER_HTML = """
             </ul>
             <ul class="composer-hotkeys-row">
                 <li><kbd>Ctrl</kbd> + wheel: scale selected object</li>
+                <li><kbd>Alt</kbd> + wheel: brush/eraser size</li>
                 <li>Hold <kbd>MMB</kbd> + drag: pan viewport</li>
                 <li>Hold <kbd>MMB</kbd> + wheel: zoom viewport</li>
                 <li><kbd>Shift</kbd> + drop: add as background</li>

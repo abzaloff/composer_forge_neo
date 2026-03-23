@@ -32,6 +32,7 @@ Composer extension for Forge/Neo that helps build scene layouts before Img2Img/I
 - `Ctrl+D` - duplicate selected object(s)
 - `Ctrl+V` / `Cmd+V` - paste image from clipboard
 - `Ctrl + Mouse Wheel` - scale selected object
+- `Alt + Mouse Wheel` - change brush/eraser size
 - `Middle Mouse (hold) + Drag` - pan viewport
 - `Middle Mouse (hold) + Wheel` - zoom viewport
 - `Shift + Drop` - drop image as background (first file)
