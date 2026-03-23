@@ -28,6 +28,12 @@
     let middlePanLastX = 0;
     let middlePanLastY = 0;
     let viewportZoom = 1;
+    const HISTORY_LIMIT = 80;
+    const HISTORY_CAPTURE_DELAY_MS = 140;
+    let historyUndoStack = [];
+    let historyRedoStack = [];
+    let historyCaptureTimer = null;
+    let historyRestoring = false;
 
     function setStatus(text) {
         const el = document.getElementById("composer-status");
@@ -42,6 +48,198 @@
             el.style.color = "#f0f0f0";
         }
         console.log("[Composer]", text);
+    }
+
+    function refreshBackgroundReference() {
+        if (!canvas) {
+            backgroundObject = null;
+            return;
+        }
+        backgroundObject = canvas.getObjects().find((obj) => obj?.composerType === "background") || null;
+    }
+
+    function mountHistoryOverlay() {
+        const overlay = document.getElementById("composer-history-overlay");
+        if (!overlay || !canvas?.wrapperEl) return;
+
+        const host = canvas.wrapperEl;
+        if (overlay.parentElement !== host) {
+            host.appendChild(overlay);
+        }
+        if (!host.style.position) {
+            host.style.position = "relative";
+        }
+    }
+
+    function getHistorySnapshot() {
+        if (!canvas) return null;
+        const canvasJson = canvas.toJSON(["name", "composerType"]);
+        const key = JSON.stringify({
+            sceneWidth,
+            sceneHeight,
+            canvas: canvasJson
+        });
+        return {
+            sceneWidth,
+            sceneHeight,
+            canvasJson,
+            key
+        };
+    }
+
+    function updateHistoryButtons() {
+        const undoBtn = document.getElementById("composer-undo-btn");
+        const redoBtn = document.getElementById("composer-redo-btn");
+        if (undoBtn) {
+            const canUndo = !historyRestoring && historyUndoStack.length > 1;
+            undoBtn.disabled = !canUndo;
+            undoBtn.classList.toggle("is-disabled", !canUndo);
+        }
+        if (redoBtn) {
+            const canRedo = !historyRestoring && historyRedoStack.length > 0;
+            redoBtn.disabled = !canRedo;
+            redoBtn.classList.toggle("is-disabled", !canRedo);
+        }
+    }
+
+    function resetHistoryToCurrentScene() {
+        const snapshot = getHistorySnapshot();
+        historyUndoStack = snapshot ? [snapshot] : [];
+        historyRedoStack = [];
+        if (historyCaptureTimer) {
+            clearTimeout(historyCaptureTimer);
+            historyCaptureTimer = null;
+        }
+        updateHistoryButtons();
+    }
+
+    function scheduleHistoryCapture() {
+        if (!canvas || historyRestoring) return;
+
+        if (historyCaptureTimer) {
+            clearTimeout(historyCaptureTimer);
+        }
+
+        historyCaptureTimer = window.setTimeout(() => {
+            historyCaptureTimer = null;
+            if (!canvas || historyRestoring) return;
+
+            const snapshot = getHistorySnapshot();
+            if (!snapshot) return;
+
+            const last = historyUndoStack[historyUndoStack.length - 1];
+            if (last?.key === snapshot.key) {
+                updateHistoryButtons();
+                return;
+            }
+
+            historyUndoStack.push(snapshot);
+            if (historyUndoStack.length > HISTORY_LIMIT) {
+                historyUndoStack.shift();
+            }
+            historyRedoStack = [];
+            updateHistoryButtons();
+        }, HISTORY_CAPTURE_DELAY_MS);
+    }
+
+    function restoreHistorySnapshot(snapshot, successText) {
+        if (!canvas || !snapshot || historyRestoring) return false;
+
+        historyRestoring = true;
+        if (historyCaptureTimer) {
+            clearTimeout(historyCaptureTimer);
+            historyCaptureTimer = null;
+        }
+        updateHistoryButtons();
+
+        canvas.discardActiveObject();
+        sceneWidth = clampToStepSize(snapshot.sceneWidth ?? sceneWidth);
+        sceneHeight = clampToStepSize(snapshot.sceneHeight ?? sceneHeight);
+        syncCanvasSizeControls();
+        fitCanvasSize();
+
+        canvas.loadFromJSON(snapshot.canvasJson, () => {
+            refreshBackgroundReference();
+            canvas.renderAll();
+            syncTextColorControlFromSelection();
+            syncObjectOpacityControlFromSelection();
+            historyRestoring = false;
+            updateHistoryButtons();
+            if (successText) setStatus(successText);
+        });
+
+        return true;
+    }
+
+    function undoHistory() {
+        if (historyRestoring || historyUndoStack.length <= 1) {
+            updateHistoryButtons();
+            return false;
+        }
+
+        const current = historyUndoStack.pop();
+        if (current) {
+            historyRedoStack.push(current);
+        }
+
+        const target = historyUndoStack[historyUndoStack.length - 1];
+        return restoreHistorySnapshot(target, "Undo applied");
+    }
+
+    function redoHistory() {
+        if (historyRestoring || historyRedoStack.length === 0) {
+            updateHistoryButtons();
+            return false;
+        }
+
+        const target = historyRedoStack.pop();
+        if (!target) {
+            updateHistoryButtons();
+            return false;
+        }
+
+        historyUndoStack.push(target);
+        return restoreHistorySnapshot(target, "Redo applied");
+    }
+
+    function bindHistoryButtons() {
+        const undoBtn = document.getElementById("composer-undo-btn");
+        const redoBtn = document.getElementById("composer-redo-btn");
+        if (!undoBtn || !redoBtn) return;
+        if (undoBtn.dataset.bound === "1") return;
+
+        const stop = (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+        };
+        undoBtn.addEventListener("mousedown", stop);
+        redoBtn.addEventListener("mousedown", stop);
+
+        undoBtn.addEventListener("click", () => {
+            undoHistory();
+        });
+        redoBtn.addEventListener("click", () => {
+            redoHistory();
+        });
+
+        undoBtn.dataset.bound = "1";
+        redoBtn.dataset.bound = "1";
+        updateHistoryButtons();
+    }
+
+    function bindHistoryTracking() {
+        if (!canvas || canvas.__composerHistoryBound) return;
+
+        const onHistoryChange = () => {
+            scheduleHistoryCapture();
+        };
+
+        canvas.on("object:added", onHistoryChange);
+        canvas.on("object:removed", onHistoryChange);
+        canvas.on("object:modified", onHistoryChange);
+        canvas.on("path:created", onHistoryChange);
+        canvas.on("text:changed", onHistoryChange);
+        canvas.__composerHistoryBound = true;
     }
 
     function applyCompactLayout() {
@@ -115,6 +313,7 @@
             container.style.margin = "0";
         }
 
+        mountHistoryOverlay();
         updateDrawCursorSize();
         canvas.renderAll();
     }
@@ -230,6 +429,15 @@
         if (hVal) hVal.textContent = String(sceneHeight);
     }
 
+    function syncCanvasSizeControls() {
+        const widthSlider = document.getElementById("composer-width-slider");
+        const heightSlider = document.getElementById("composer-height-slider");
+
+        if (widthSlider) widthSlider.value = String(sceneWidth);
+        if (heightSlider) heightSlider.value = String(sceneHeight);
+        updateSizeLabels();
+    }
+
     function bindCanvasSizeControls() {
         const widthSlider = document.getElementById("composer-width-slider");
         const heightSlider = document.getElementById("composer-height-slider");
@@ -239,9 +447,7 @@
             return;
         }
 
-        widthSlider.value = String(sceneWidth);
-        heightSlider.value = String(sceneHeight);
-        updateSizeLabels();
+        syncCanvasSizeControls();
 
         widthSlider.addEventListener("input", () => {
             const next = clampToStepSize(widthSlider.value);
@@ -249,6 +455,7 @@
             sceneWidth = next;
             updateSizeLabels();
             fitCanvasSize();
+            scheduleHistoryCapture();
         });
 
         heightSlider.addEventListener("input", () => {
@@ -257,6 +464,7 @@
             sceneHeight = next;
             updateSizeLabels();
             fitCanvasSize();
+            scheduleHistoryCapture();
         });
     }
 
@@ -404,6 +612,7 @@
         backgroundObject.setCoords();
         canvas.setActiveObject(backgroundObject);
         canvas.requestRenderAll();
+        scheduleHistoryCapture();
         setStatus(`Background scale: ${Math.round(nextScale * 100)}%`);
     }
 
@@ -424,6 +633,7 @@
         obj.setCoords();
         canvas.setActiveObject(obj);
         canvas.requestRenderAll();
+        scheduleHistoryCapture();
         setStatus(`Object scale: ${Math.round(nextScale * 100)}%`);
     }
 
@@ -689,6 +899,7 @@
                 changed += 1;
             });
             canvas.requestRenderAll();
+            if (changed > 0) scheduleHistoryCapture();
             setStatus(changed > 0 ? `Color applied: ${currentTextColor}` : "No text/shape in selection");
             return;
         }
@@ -697,6 +908,7 @@
             active.set("fill", currentTextColor);
             active.setCoords();
             canvas.requestRenderAll();
+            scheduleHistoryCapture();
             setStatus(`Color applied: ${currentTextColor}`);
             return;
         }
@@ -771,6 +983,7 @@
         }
 
         canvas.requestRenderAll();
+        scheduleHistoryCapture();
         if (!silent) setStatus(`Opacity: ${clamped}%`);
         return true;
     }
@@ -830,6 +1043,7 @@
         active.setCoords();
         canvas.setActiveObject(active);
         canvas.requestRenderAll();
+        scheduleHistoryCapture();
         setStatus(direction === "up" ? "Moved layer up" : "Moved layer down");
     }
 
@@ -856,6 +1070,7 @@
                 changed += 1;
             });
             canvas.requestRenderAll();
+            if (changed > 0) scheduleHistoryCapture();
             setStatus(changed > 0 ? `Flipped ${changed} object(s)` : "Nothing to flip");
             return;
         }
@@ -864,6 +1079,7 @@
         active.setCoords();
         canvas.setActiveObject(active);
         canvas.requestRenderAll();
+        scheduleHistoryCapture();
         setStatus(isX ? "Flipped horizontally" : "Flipped vertically");
     }
 
@@ -1012,6 +1228,25 @@
                 e.preventDefault();
                 e.stopPropagation();
                 duplicateActiveObject();
+                return;
+            }
+
+            const isUndoShortcut = (e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey
+                && (e.key === "z" || e.key === "Z");
+            if (isUndoShortcut && undoHistory()) {
+                e.preventDefault();
+                e.stopPropagation();
+                return;
+            }
+
+            const isRedoShortcut = (e.ctrlKey || e.metaKey) && !e.altKey
+                && (
+                    (!e.shiftKey && (e.key === "y" || e.key === "Y"))
+                    || (e.shiftKey && (e.key === "z" || e.key === "Z"))
+                );
+            if (isRedoShortcut && redoHistory()) {
+                e.preventDefault();
+                e.stopPropagation();
             }
         });
 
@@ -2127,6 +2362,9 @@
             bindCanvasSizeControls();
             bindDeleteShortcut();
             bindClipboardPaste();
+            bindHistoryButtons();
+            bindHistoryTracking();
+            resetHistoryToCurrentScene();
 
             const clearBtn = document.getElementById("composer-clear-btn");
             const addTextBtn = document.getElementById("composer-add-text-btn");

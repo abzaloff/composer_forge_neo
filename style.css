@@ -109,6 +109,39 @@
     backdrop-filter: blur(2px);
 }
 
+.composer-history-overlay {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    z-index: 7;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.composer-history-btn {
+    width: 28px;
+    height: 28px;
+    min-width: 28px;
+    border-radius: 6px;
+    border: 1px solid #ff8c00;
+    background: rgba(30, 20, 10, 0.9);
+    color: #ff8c00;
+    cursor: pointer;
+    padding: 0;
+    line-height: 1;
+    font-size: 16px;
+    font-weight: 700;
+}
+
+.composer-history-btn.is-disabled,
+.composer-history-btn:disabled {
+    opacity: 0.45;
+    cursor: default;
+    border-color: #8a5e2f;
+    color: #c18b53;
+}
+
 .composer-opacity-overlay {
     position: absolute;
     top: 60px;

@@ -71,6 +71,10 @@ COMPOSER_HTML = """
 
     <div class="composer-stage-wrap">
         <canvas id="forge-composer-canvas"></canvas>
+        <div id="composer-history-overlay" class="composer-history-overlay" aria-label="History controls">
+            <button id="composer-undo-btn" class="composer-history-btn" type="button" title="Undo">&#8630;</button>
+            <button id="composer-redo-btn" class="composer-history-btn" type="button" title="Redo">&#8631;</button>
+        </div>
         <div id="composer-draw-overlay" class="composer-draw-overlay">
             <button id="composer-draw-brush-btn" class="composer-draw-tool-btn" type="button" title="Brush">&#128396;</button>
             <button id="composer-draw-eraser-btn" class="composer-draw-tool-btn" type="button" title="Eraser">&#9003;</button>
