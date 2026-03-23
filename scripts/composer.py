@@ -122,6 +122,8 @@ COMPOSER_HTML = """
             <ul class="composer-hotkeys-row">
                 <li><kbd>Shift</kbd> + click/drag: multi-select</li>
                 <li><kbd>Delete</kbd>: delete selection</li>
+                <li><kbd>B</kbd>: brush (press again to turn off)</li>
+                <li><kbd>E</kbd>: eraser (press again to turn off)</li>
                 <li><kbd>Ctrl</kbd>/<kbd>Cmd</kbd> + <kbd>D</kbd>: duplicate</li>
                 <li><kbd>Ctrl</kbd>/<kbd>Cmd</kbd> + <kbd>V</kbd>: paste image from clipboard</li>
             </ul>

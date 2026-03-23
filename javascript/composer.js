@@ -1359,6 +1359,20 @@
             if (isRedoShortcut && redoHistory()) {
                 e.preventDefault();
                 e.stopPropagation();
+                return;
+            }
+
+            const hasNoModifiers = !e.ctrlKey && !e.metaKey && !e.altKey;
+            if (hasNoModifiers && e.code === "KeyB") {
+                e.preventDefault();
+                e.stopPropagation();
+                setDrawingTool("brush");
+                return;
+            }
+            if (hasNoModifiers && e.code === "KeyE") {
+                e.preventDefault();
+                e.stopPropagation();
+                setDrawingTool("eraser");
             }
         });
 
@@ -1906,7 +1920,7 @@
     function setDrawingTool(tool) {
         if (!canvas) return;
 
-        if (drawingTool === tool && canvas.isDrawingMode) {
+        if (drawingTool === tool) {
             disableDrawingMode();
             return;
         }

@@ -29,6 +29,8 @@ Composer extension for Forge/Neo that helps build scene layouts before Img2Img/I
 ## Keyboard Shortcuts
 
 - `Delete` - remove selected object(s)
+- `B` - brush (press again to turn off)
+- `E` - eraser (press again to turn off)
 - `Ctrl+D` - duplicate selected object(s)
 - `Ctrl+V` / `Cmd+V` - paste image from clipboard
 - `Ctrl + Mouse Wheel` - scale selected object
