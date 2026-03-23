@@ -69,24 +69,7 @@ COMPOSER_HTML = """
         <button id="composer-send-controlnet-i2i-btn" class="composer-btn composer-btn-primary" type="button">Send to ControlNetI2I</button>
     </div>
 
-    <div class="composer-stage-wrap">
-        <canvas id="forge-composer-canvas"></canvas>
-        <div id="composer-stage-actions-overlay" class="composer-stage-actions-overlay" aria-label="Composer actions">
-            <button id="composer-remove-bg-btn" class="composer-btn" type="button">Remove BG</button>
-            <button id="composer-layer-up-btn" class="composer-btn" type="button" title="Layer Up">&uarr;</button>
-            <button id="composer-layer-down-btn" class="composer-btn" type="button" title="Layer Down">&darr;</button>
-            <button id="composer-flip-x-btn" class="composer-btn" type="button" title="Flip Horizontal">&hArr;</button>
-            <button id="composer-flip-y-btn" class="composer-btn" type="button" title="Flip Vertical">&vArr;</button>
-            <button id="composer-undo-btn" class="composer-btn composer-history-btn" type="button" title="Undo" aria-label="Undo">
-                <span class="composer-history-glyph" aria-hidden="true">&#8630;</span>
-            </button>
-            <button id="composer-redo-btn" class="composer-btn composer-history-btn" type="button" title="Redo" aria-label="Redo">
-                <span class="composer-history-glyph" aria-hidden="true">&#8631;</span>
-            </button>
-            <label class="composer-btn composer-color-only" for="composer-text-color" title="Color" aria-label="Color">
-                <input id="composer-text-color" class="composer-color-picker" type="color" value="#ffffff">
-            </label>
-        </div>
+    <div class="composer-secondary-toolbar" aria-label="Composer secondary tools">
         <div id="composer-draw-overlay" class="composer-draw-overlay">
             <button id="composer-draw-brush-btn" class="composer-draw-tool-btn" type="button" title="Brush">&#128396;</button>
             <button id="composer-draw-eraser-btn" class="composer-draw-tool-btn" type="button" title="Eraser">&#9003;</button>
@@ -108,12 +91,33 @@ COMPOSER_HTML = """
             <input id="composer-draw-softness" class="composer-draw-range" type="range" min="0" max="50" step="1" value="0">
         </div>
 
+        <div id="composer-stage-actions-overlay" class="composer-stage-actions-overlay" aria-label="Composer actions">
+            <button id="composer-remove-bg-btn" class="composer-btn" type="button">Remove BG</button>
+            <button id="composer-layer-up-btn" class="composer-btn" type="button" title="Layer Up">&uarr;</button>
+            <button id="composer-layer-down-btn" class="composer-btn" type="button" title="Layer Down">&darr;</button>
+            <button id="composer-flip-x-btn" class="composer-btn" type="button" title="Flip Horizontal">&hArr;</button>
+            <button id="composer-flip-y-btn" class="composer-btn" type="button" title="Flip Vertical">&vArr;</button>
+            <button id="composer-undo-btn" class="composer-btn composer-history-btn" type="button" title="Undo" aria-label="Undo">
+                <span class="composer-history-glyph" aria-hidden="true">&#8630;</span>
+            </button>
+            <button id="composer-redo-btn" class="composer-btn composer-history-btn" type="button" title="Redo" aria-label="Redo">
+                <span class="composer-history-glyph" aria-hidden="true">&#8631;</span>
+            </button>
+            <label class="composer-btn composer-color-only" for="composer-text-color" title="Color" aria-label="Color">
+                <input id="composer-text-color" class="composer-color-picker" type="color" value="#ffffff">
+            </label>
+        </div>
+
         <div id="composer-opacity-overlay" class="composer-opacity-overlay">
             <label class="composer-opacity-label" for="composer-object-opacity">
                 Opacity <span id="composer-object-opacity-value">100</span>
             </label>
             <input id="composer-object-opacity" class="composer-opacity-range" type="range" min="0" max="100" step="1" value="100">
         </div>
+    </div>
+
+    <div class="composer-stage-wrap">
+        <canvas id="forge-composer-canvas"></canvas>
     </div>
 
     <div class="composer-footer">

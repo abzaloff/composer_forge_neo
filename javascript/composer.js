@@ -60,10 +60,10 @@
 
     function mountStageActionsOverlay() {
         const overlay = document.getElementById("composer-stage-actions-overlay");
-        const stageWrap = document.querySelector(".composer-stage-wrap");
-        if (!overlay || !stageWrap) return;
-        if (overlay.parentElement !== stageWrap) {
-            stageWrap.appendChild(overlay);
+        const secondRow = document.querySelector(".composer-secondary-toolbar");
+        if (!overlay || !secondRow) return;
+        if (overlay.parentElement !== secondRow) {
+            secondRow.appendChild(overlay);
         }
     }
 

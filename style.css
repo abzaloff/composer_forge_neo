@@ -109,6 +109,7 @@
     min-height: 512px;
     max-height: 512px;
     height: 512px;
+    margin-top: 8px;
     border: 1px solid #444;
     border-radius: 10px;
     overflow: hidden;
@@ -119,12 +120,19 @@
     justify-content: center;
 }
 
-.composer-draw-overlay {
-    position: absolute;
-    top: 10px;
-    left: 10px;
-    z-index: 5;
+.composer-secondary-toolbar {
+    width: 100%;
     display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-wrap: wrap;
+    gap: 8px 10px;
+}
+
+.composer-draw-overlay {
+    position: relative;
+    z-index: 2;
+    display: inline-flex;
     align-items: center;
     gap: 6px;
     padding: 6px 8px;
@@ -135,15 +143,12 @@
 }
 
 .composer-stage-actions-overlay {
-    position: absolute;
-    top: 10px;
-    left: 50%;
-    transform: translateX(-50%);
-    z-index: 7;
+    position: relative;
+    z-index: 2;
     display: inline-flex;
     align-items: center;
     gap: 8px;
-    max-width: calc(100% - 20px);
+    max-width: 100%;
     padding: 0 2px;
     overflow-x: auto;
     overflow-y: hidden;
@@ -234,10 +239,8 @@
 }
 
 .composer-opacity-overlay {
-    position: absolute;
-    top: 60px;
-    left: 10px;
-    z-index: 5;
+    position: relative;
+    z-index: 2;
     display: inline-flex;
     align-items: center;
     gap: 8px;
