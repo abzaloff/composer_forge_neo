@@ -14,12 +14,18 @@ _REMBG_READY = False
 COMPOSER_HTML = """
 <div id="forge-composer-root" class="forge-composer-root">
     <div class="composer-toolbar">
-        <label class="composer-btn">
-            Add Image
+        <label class="composer-btn composer-icon-btn" title="Add Image" aria-label="Add Image">
+            <svg class="composer-toolbar-icon" viewBox="0 0 16 16" aria-hidden="true">
+                <rect x="2.2" y="3.2" width="11.6" height="9.6" rx="1.5" ry="1.5"></rect>
+                <circle cx="5.3" cy="6.3" r="1.1"></circle>
+                <path d="M3.4 11.1l3.1-2.9 1.9 1.8 2.3-2.1 2 3.2"></path>
+            </svg>
             <input id="composer-image-upload" type="file" accept="image/png,image/jpeg,image/webp" multiple hidden>
         </label>
 
-        <button id="composer-add-text-btn" class="composer-btn" type="button">Add Text</button>
+        <button id="composer-add-text-btn" class="composer-btn composer-icon-btn" type="button" title="Add Text" aria-label="Add Text">
+            <span class="composer-text-icon">T</span>
+        </button>
         <button id="composer-add-rect-btn" class="composer-btn" type="button" title="Square">
             <svg class="composer-shape-icon" viewBox="0 0 16 16" aria-hidden="true">
                 <rect x="3" y="3" width="10" height="10"></rect>
@@ -40,19 +46,8 @@ COMPOSER_HTML = """
                 <polygon points="4,3.5 12,3.5 14,8 12,12.5 4,12.5 2,8"></polygon>
             </svg>
         </button>
-        <button id="composer-remove-bg-btn" class="composer-btn" type="button">Remove BG</button>
-        <label class="composer-btn composer-color-wrap" for="composer-text-color">
-            Color
-            <input id="composer-text-color" class="composer-color-picker" type="color" value="#ffffff">
-        </label>
-        <button id="composer-layer-up-btn" class="composer-btn" type="button">&uarr;</button>
-        <button id="composer-layer-down-btn" class="composer-btn" type="button">&darr;</button>
-        <button id="composer-flip-x-btn" class="composer-btn" type="button">&hArr;</button>
-        <button id="composer-flip-y-btn" class="composer-btn" type="button">&vArr;</button>
         <button id="composer-clear-btn" class="composer-btn" type="button">Clear</button>
         <button id="composer-export-btn" class="composer-btn" type="button">Export</button>
-        <button id="composer-send-img2img-btn" class="composer-btn composer-btn-primary" type="button">Send to Img2Img</button>
-        <button id="composer-send-inpaint-btn" class="composer-btn composer-btn-primary" type="button">Send to Inpaint</button>
 
         <div class="composer-size-controls">
             <label class="composer-size-label" for="composer-width-slider">
@@ -67,13 +62,30 @@ COMPOSER_HTML = """
             <input id="composer-height-slider" class="composer-slider" type="range" min="64" max="2048" step="64" value="1024">
             <span id="composer-height-value" class="composer-size-value">1024</span>
         </div>
+
+        <button id="composer-send-img2img-btn" class="composer-btn composer-btn-primary" type="button">Send to Img2Img</button>
+        <button id="composer-send-inpaint-btn" class="composer-btn composer-btn-primary" type="button">Send to Inpaint</button>
+        <button id="composer-send-controlnet-t2i-btn" class="composer-btn composer-btn-primary" type="button">Send to ControlNetT2I</button>
+        <button id="composer-send-controlnet-i2i-btn" class="composer-btn composer-btn-primary" type="button">Send to ControlNetI2I</button>
     </div>
 
     <div class="composer-stage-wrap">
         <canvas id="forge-composer-canvas"></canvas>
-        <div id="composer-history-overlay" class="composer-history-overlay" aria-label="History controls">
-            <button id="composer-undo-btn" class="composer-history-btn" type="button" title="Undo">&#8630;</button>
-            <button id="composer-redo-btn" class="composer-history-btn" type="button" title="Redo">&#8631;</button>
+        <div id="composer-stage-actions-overlay" class="composer-stage-actions-overlay" aria-label="Composer actions">
+            <button id="composer-remove-bg-btn" class="composer-btn" type="button">Remove BG</button>
+            <button id="composer-layer-up-btn" class="composer-btn" type="button" title="Layer Up">&uarr;</button>
+            <button id="composer-layer-down-btn" class="composer-btn" type="button" title="Layer Down">&darr;</button>
+            <button id="composer-flip-x-btn" class="composer-btn" type="button" title="Flip Horizontal">&hArr;</button>
+            <button id="composer-flip-y-btn" class="composer-btn" type="button" title="Flip Vertical">&vArr;</button>
+            <button id="composer-undo-btn" class="composer-btn composer-history-btn" type="button" title="Undo" aria-label="Undo">
+                <span class="composer-history-glyph" aria-hidden="true">&#8630;</span>
+            </button>
+            <button id="composer-redo-btn" class="composer-btn composer-history-btn" type="button" title="Redo" aria-label="Redo">
+                <span class="composer-history-glyph" aria-hidden="true">&#8631;</span>
+            </button>
+            <label class="composer-btn composer-color-only" for="composer-text-color" title="Color" aria-label="Color">
+                <input id="composer-text-color" class="composer-color-picker" type="color" value="#ffffff">
+            </label>
         </div>
         <div id="composer-draw-overlay" class="composer-draw-overlay">
             <button id="composer-draw-brush-btn" class="composer-draw-tool-btn" type="button" title="Brush">&#128396;</button>

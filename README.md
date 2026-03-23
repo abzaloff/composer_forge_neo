@@ -23,7 +23,7 @@ Composer extension for Forge/Neo that helps build scene layouts before Img2Img/I
 - Layer ordering (`up` / `down`)
 - Flip selected objects (horizontal / vertical)
 - Export scene to PNG
-- Send scene directly to Img2Img or Inpaint
+- Send scene directly to Img2Img, Inpaint, ControlNet T2I, or ControlNet I2I
 - Adjustable canvas size
 
 ## Keyboard Shortcuts

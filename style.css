@@ -41,6 +41,31 @@
     padding-right: 8px;
 }
 
+#forge-composer-root .composer-icon-btn {
+    width: 42px;
+    min-width: 42px;
+    padding: 0;
+}
+
+#forge-composer-root .composer-toolbar-icon {
+    display: block;
+    width: 16px;
+    height: 16px;
+    stroke: #f2f2f2;
+    fill: none;
+    stroke-width: 1.4;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+
+#forge-composer-root .composer-text-icon {
+    display: inline-block;
+    font-size: 17px;
+    font-weight: 700;
+    line-height: 1;
+    color: #f2f2f2;
+}
+
 #forge-composer-root .composer-color-picker {
     width: 32px;
     height: 24px;
@@ -109,37 +134,103 @@
     backdrop-filter: blur(2px);
 }
 
-.composer-history-overlay {
+.composer-stage-actions-overlay {
     position: absolute;
     top: 10px;
-    right: 10px;
+    left: 50%;
+    transform: translateX(-50%);
     z-index: 7;
     display: inline-flex;
     align-items: center;
-    gap: 6px;
+    gap: 8px;
+    max-width: calc(100% - 20px);
+    padding: 0 2px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    scrollbar-width: thin;
 }
 
-.composer-history-btn {
+.composer-stage-actions-overlay .composer-btn {
+    height: 36px;
+    min-height: 36px;
+    padding: 0 12px;
+}
+
+.composer-stage-actions-overlay .composer-color-only {
+    width: 36px;
+    min-width: 36px;
+    height: 36px;
+    min-height: 36px;
+    padding: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+#forge-composer-root .composer-stage-actions-overlay .composer-color-picker {
     width: 28px;
     height: 28px;
     min-width: 28px;
-    border-radius: 6px;
+    min-height: 28px;
+    border: 1px solid #666;
+    border-radius: 4px;
+    padding: 0;
+    background: transparent;
+    appearance: none;
+    -webkit-appearance: none;
+}
+
+#forge-composer-root .composer-stage-actions-overlay .composer-color-picker::-webkit-color-swatch-wrapper {
+    padding: 0;
+}
+
+#forge-composer-root .composer-stage-actions-overlay .composer-color-picker::-webkit-color-swatch {
+    border: none;
+    border-radius: 3px;
+}
+
+#forge-composer-root .composer-stage-actions-overlay .composer-color-picker::-moz-color-swatch {
+    border: none;
+    border-radius: 3px;
+}
+
+.composer-history-btn {
+    width: 36px;
+    min-width: 36px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
     border: 1px solid #ff8c00;
     background: rgba(30, 20, 10, 0.9);
     color: #ff8c00;
-    cursor: pointer;
+    box-shadow: 0 0 0 1px rgba(255,140,0,0.22) inset;
     padding: 0;
+    margin: 0;
+    align-self: center;
+}
+
+#forge-composer-root .composer-stage-actions-overlay .composer-btn.composer-history-btn {
+    border: 1px solid #ff8c00;
+    box-shadow: 0 0 0 1px rgba(255,140,0,0.22) inset;
+    color: #ff8c00;
+}
+
+.composer-history-glyph {
+    display: inline-block;
+    font-size: 23px;
     line-height: 1;
-    font-size: 16px;
     font-weight: 700;
+    transform: translateY(-1px);
 }
 
 .composer-history-btn.is-disabled,
 .composer-history-btn:disabled {
-    opacity: 0.45;
+    opacity: 1;
     cursor: default;
-    border-color: #8a5e2f;
-    color: #c18b53;
+    border-color: rgba(255, 140, 0, 0.55);
+    color: rgba(255, 140, 0, 0.42);
+    background: rgba(30, 20, 10, 0.72);
+    box-shadow: 0 0 0 1px rgba(255,140,0,0.12) inset;
 }
 
 .composer-opacity-overlay {

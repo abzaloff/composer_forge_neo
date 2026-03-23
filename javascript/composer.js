@@ -58,16 +58,12 @@
         backgroundObject = canvas.getObjects().find((obj) => obj?.composerType === "background") || null;
     }
 
-    function mountHistoryOverlay() {
-        const overlay = document.getElementById("composer-history-overlay");
-        if (!overlay || !canvas?.wrapperEl) return;
-
-        const host = canvas.wrapperEl;
-        if (overlay.parentElement !== host) {
-            host.appendChild(overlay);
-        }
-        if (!host.style.position) {
-            host.style.position = "relative";
+    function mountStageActionsOverlay() {
+        const overlay = document.getElementById("composer-stage-actions-overlay");
+        const stageWrap = document.querySelector(".composer-stage-wrap");
+        if (!overlay || !stageWrap) return;
+        if (overlay.parentElement !== stageWrap) {
+            stageWrap.appendChild(overlay);
         }
     }
 
@@ -264,6 +260,20 @@
         updateHistoryButtons();
     }
 
+    function bindStageActionsOverlay() {
+        const overlay = document.getElementById("composer-stage-actions-overlay");
+        if (!overlay || overlay.dataset.bound === "1") return;
+
+        overlay.addEventListener("mousedown", (e) => {
+            e.stopPropagation();
+        });
+        overlay.addEventListener("click", (e) => {
+            e.stopPropagation();
+        });
+
+        overlay.dataset.bound = "1";
+    }
+
     function bindHistoryTracking() {
         if (!canvas || canvas.__composerHistoryBound) return;
 
@@ -396,7 +406,7 @@
             container.style.margin = "0";
         }
 
-        mountHistoryOverlay();
+        mountStageActionsOverlay();
         updateDrawCursorSize();
         canvas.renderAll();
     }
@@ -2185,8 +2195,20 @@
                 canvas.discardActiveObject();
             }
 
-            // Render full scene at real output resolution (independent from preview size).
-            canvas.setViewportTransform([1, 0, 0, 1, 0, 0]);
+            // Export the current viewport framing (pan/zoom) at full output resolution.
+            // Scale current viewport transform from preview pixels to scene pixels.
+            const sx = prevWidth > 0 ? sceneWidth / prevWidth : 1;
+            const sy = prevHeight > 0 ? sceneHeight / prevHeight : 1;
+            const exportViewportTransform = [
+                (prevViewportTransform[0] || 0) * sx,
+                (prevViewportTransform[1] || 0) * sy,
+                (prevViewportTransform[2] || 0) * sx,
+                (prevViewportTransform[3] || 0) * sy,
+                (prevViewportTransform[4] || 0) * sx,
+                (prevViewportTransform[5] || 0) * sy
+            ];
+
+            canvas.setViewportTransform(exportViewportTransform);
             canvas.setWidth(sceneWidth);
             canvas.setHeight(sceneHeight);
             if (canvasEl) {
@@ -2284,12 +2306,31 @@
         return candidates.find((el) => labelRegex.test((el.textContent || "").trim().toLowerCase())) || null;
     }
 
-    function findBestFileInput(selectors) {
+    function findTabButtonInScopes(scopeSelectors, labelRegex) {
+        const composerRoot = document.getElementById("forge-composer-root");
+        for (const scopeSelector of scopeSelectors) {
+            const scope = document.querySelector(scopeSelector);
+            if (!scope) continue;
+            const localCandidates = [
+                ...scope.querySelectorAll('button, [role="tab"], .tab-nav button, .tabs button')
+            ].filter((el) => !(composerRoot && composerRoot.contains(el)));
+            const match = localCandidates.find((el) => labelRegex.test((el.textContent || "").trim().toLowerCase()));
+            if (match) return match;
+        }
+        return null;
+    }
+
+    function findBestFileInput(selectors, opts = {}) {
+        const allowGenericFallback = opts.allowGenericFallback !== false;
         for (const selector of selectors) {
             const all = [...document.querySelectorAll(selector)];
             const visible = all.find(isElementVisible);
             if (visible) return visible;
             if (all.length > 0) return all[0];
+        }
+
+        if (!allowGenericFallback) {
+            return null;
         }
 
         const composerRoot = document.getElementById("forge-composer-root");
@@ -2304,6 +2345,259 @@
         return genericAny[0] || null;
     }
 
+    function normalizeUiText(value) {
+        return String(value || "").toLowerCase().replace(/\s+/g, " ").trim();
+    }
+
+    function findControlNetIndependentUploadToggle(scopeSelectors) {
+        const exactNeedle = "upload independent control image";
+        const fuzzyPatterns = [
+            /\bupload\b.*\bindependent\b.*\bcontrol\b.*\bimage\b/i,
+            /\bindependent\b.*\bcontrol\b.*\bimage\b/i
+        ];
+
+        const toToggle = (el) => {
+            if (!el) return null;
+            if (el.matches?.('input[type="checkbox"]')) return { kind: "input", el, clickTarget: el };
+            if (el.matches?.('[role="checkbox"], button[aria-checked]')) return { kind: "aria", el, clickTarget: el };
+            return null;
+        };
+        const controlNetNeedle = /(independent.*control.*image|control.*image.*independent)/i;
+
+        for (const scopeSelector of scopeSelectors) {
+            const scope = document.querySelector(scopeSelector);
+            if (!scope) continue;
+
+            // 1) Prefer exact label matches to avoid accidentally toggling "Enable".
+            const labels = [...scope.querySelectorAll("label")];
+            for (const label of labels) {
+                const text = normalizeUiText(label.textContent);
+                if (!text) continue;
+                const hit = text.includes(exactNeedle) || fuzzyPatterns.some((re) => re.test(text));
+                if (!hit) continue;
+
+                const own = toToggle(label.querySelector('input[type="checkbox"], [role="checkbox"], button[aria-checked]'));
+                if (own) return own;
+
+                const forId = label.getAttribute("for");
+                if (forId) {
+                    const byId = document.getElementById(forId);
+                    const linked = toToggle(byId);
+                    if (linked) return linked;
+                }
+
+                const prev = toToggle(label.previousElementSibling);
+                if (prev) return prev;
+                const next = toToggle(label.nextElementSibling);
+                if (next) return next;
+            }
+
+            // 2) Then try nearby text nodes (short strings only), bound to immediate row siblings.
+            const textNodes = [...scope.querySelectorAll("span, p, div")]
+                .filter((node) => {
+                    const text = normalizeUiText(node.textContent);
+                    if (!text || text.length > 80) return false;
+                    return text.includes(exactNeedle) || fuzzyPatterns.some((re) => re.test(text));
+                });
+            for (const node of textNodes) {
+                const parent = node.parentElement;
+                if (!parent) continue;
+
+                const directInParent = toToggle(parent.querySelector(':scope > input[type="checkbox"], :scope > [role="checkbox"], :scope > button[aria-checked]'));
+                if (directInParent) return directInParent;
+
+                const prev = toToggle(node.previousElementSibling);
+                if (prev) return prev;
+                const next = toToggle(node.nextElementSibling);
+                if (next) return next;
+            }
+        }
+
+        // Some UIs render ControlNet rows outside the img2img subtree.
+        // Fallback: search globally, but skip hidden nodes and Composer itself.
+        const composerRoot = document.getElementById("forge-composer-root");
+        const globalLabels = [...document.querySelectorAll("label")];
+        for (const label of globalLabels) {
+            if (!label || (composerRoot && composerRoot.contains(label))) continue;
+            if (!isElementVisible(label)) continue;
+            const text = normalizeUiText(label.textContent);
+            if (!text) continue;
+            const hit = text.includes(exactNeedle) || fuzzyPatterns.some((re) => re.test(text));
+            if (!hit) continue;
+
+            const own = toToggle(label.querySelector('input[type="checkbox"], [role="checkbox"], button[aria-checked]'));
+            if (own) return own;
+
+            const forId = label.getAttribute("for");
+            if (forId) {
+                const byId = document.getElementById(forId);
+                const linked = toToggle(byId);
+                if (linked) return linked;
+            }
+
+            const prev = toToggle(label.previousElementSibling);
+            if (prev) return prev;
+            const next = toToggle(label.nextElementSibling);
+            if (next) return next;
+        }
+
+        // Hard fallback by attributes (id/name/aria) for custom ControlNet widgets.
+        const globalCandidates = [
+            ...document.querySelectorAll(
+                'input[type="checkbox"], [role="checkbox"], button[aria-checked], [id], [name], [aria-label]'
+            )
+        ].filter((el) => !(composerRoot && composerRoot.contains(el)));
+
+        for (const el of globalCandidates) {
+            if (!isElementVisible(el)) continue;
+            const haystack = [
+                el.id,
+                el.getAttribute?.("name"),
+                el.getAttribute?.("aria-label"),
+                el.getAttribute?.("data-testid"),
+                el.textContent
+            ].map((v) => normalizeUiText(v)).join(" ");
+
+            if (!controlNetNeedle.test(haystack)) continue;
+
+            const direct = toToggle(el);
+            if (direct) return direct;
+
+            const parent = el.closest("label, .gr-checkbox, .gradio-checkbox, .gr-form, .form, .block, div");
+            if (parent) {
+                const nested = toToggle(
+                    parent.querySelector('input[type="checkbox"], [role="checkbox"], button[aria-checked]')
+                );
+                if (nested) return nested;
+            }
+        }
+
+        return null;
+    }
+
+    function isToggleEnabled(toggle) {
+        if (!toggle?.el) return false;
+        if (toggle.kind === "input") {
+            return !!toggle.el.checked;
+        }
+        const aria = String(toggle.el.getAttribute("aria-checked") || "").toLowerCase();
+        return aria === "true";
+    }
+
+    async function ensureControlNetIndependentUploadEnabled(scopeSelectors) {
+        const getToggle = () => findControlNetIndependentUploadToggle(scopeSelectors);
+        let toggle = getToggle();
+        if (!toggle) return false;
+        if (isToggleEnabled(toggle)) return true;
+
+        const clickTarget = toggle.clickTarget || toggle.el;
+        clickTarget.click();
+
+        if (toggle.kind === "input") {
+            toggle.el.dispatchEvent(new Event("input", { bubbles: true }));
+            toggle.el.dispatchEvent(new Event("change", { bubbles: true }));
+        }
+
+        await new Promise((r) => setTimeout(r, 460));
+        toggle = getToggle() || toggle;
+        if (isToggleEnabled(toggle)) return true;
+
+        // Second attempt: click both target and its label/container to support custom wrappers.
+        clickTarget.click();
+        const container = toggle.el?.closest?.("label, .gr-checkbox, .gradio-checkbox, .gr-form, .form, .block, div");
+        if (container && container !== clickTarget) {
+            container.click();
+        }
+        if (toggle.kind === "input") {
+            toggle.el.checked = true;
+            toggle.el.dispatchEvent(new Event("input", { bubbles: true }));
+            toggle.el.dispatchEvent(new Event("change", { bubbles: true }));
+        }
+        await new Promise((r) => setTimeout(r, 320));
+        toggle = getToggle() || toggle;
+        return isToggleEnabled(toggle);
+    }
+
+    function readToggleStateFromNode(node) {
+        if (!node) return null;
+        if (node.matches?.('input[type="checkbox"]')) return !!node.checked;
+        if (node.matches?.('[role="checkbox"], button[aria-checked]')) {
+            return String(node.getAttribute("aria-checked") || "").toLowerCase() === "true";
+        }
+        const nested = node.querySelector?.('input[type="checkbox"], [role="checkbox"], button[aria-checked]');
+        if (nested) {
+            return readToggleStateFromNode(nested);
+        }
+        return null;
+    }
+
+    function clickToggleNode(node) {
+        if (!node) return false;
+        const target = node.matches?.('input[type="checkbox"], [role="checkbox"], button[aria-checked]')
+            ? node
+            : node.querySelector?.('input[type="checkbox"], [role="checkbox"], button[aria-checked]');
+        if (!target) return false;
+
+        target.click();
+        if (target.matches?.('input[type="checkbox"]')) {
+            target.dispatchEvent(new Event("input", { bubbles: true }));
+            target.dispatchEvent(new Event("change", { bubbles: true }));
+        }
+        return true;
+    }
+
+    async function ensureControlNetIndependentByKnownIds() {
+        const unitIds = [0, 1, 2].map((idx) => ({
+            enableId: `img2img_controlnet_ControlNet-${idx}_controlnet_enable_checkbox`,
+            sameImgId: `img2img_controlnet_ControlNet-${idx}_controlnet_same_img2img_checkbox`
+        }));
+
+        const enabledUnits = [];
+        const disabledUnits = [];
+
+        for (const ids of unitIds) {
+            const enableNode = document.getElementById(ids.enableId);
+            const sameImgNode = document.getElementById(ids.sameImgId);
+            if (!sameImgNode) continue;
+
+            const enableState = readToggleStateFromNode(enableNode);
+            if (enableState === true) {
+                enabledUnits.push(sameImgNode);
+            } else {
+                disabledUnits.push(sameImgNode);
+            }
+        }
+
+        const targets = enabledUnits.length > 0 ? enabledUnits : disabledUnits.slice(0, 1);
+        if (targets.length === 0) return false;
+
+        let changed = false;
+        for (const node of targets) {
+            const current = readToggleStateFromNode(node);
+            // According to saved img2img presets in this Forge setup:
+            // same_img2img=true corresponds to "Upload independent control image" enabled.
+            if (current !== true) {
+                clickToggleNode(node);
+                changed = true;
+            }
+        }
+
+        if (changed) {
+            await new Promise((r) => setTimeout(r, 420));
+        }
+        return true;
+    }
+
+    function assignFileToInput(targetInput, file) {
+        if (!targetInput || !file) return false;
+        const dt = new DataTransfer();
+        dt.items.add(file);
+        targetInput.files = dt.files;
+        targetInput.dispatchEvent(new Event("input", { bubbles: true }));
+        targetInput.dispatchEvent(new Event("change", { bubbles: true }));
+        return true;
+    }
+
     async function sendToForgeTarget(targetMode) {
         const dataUrl = exportCanvasToDataUrl();
         if (!dataUrl) {
@@ -2316,6 +2610,7 @@
 
         let tabButton = null;
         let inputSelectorCandidates = [];
+        let findInputOpts = { allowGenericFallback: true };
 
         if (targetMode === "img2img") {
             tabButton = findTabButton(/\bimg2img\b/i);
@@ -2324,7 +2619,7 @@
                 '#img2img_tab input[type="file"]',
                 '#img2img input[type="file"]'
             ];
-        } else {
+        } else if (targetMode === "inpaint") {
             const img2imgTab = findTabButton(/\bimg2img\b/i);
             if (img2imgTab) {
                 img2imgTab.click();
@@ -2339,24 +2634,89 @@
                 '#img2img_inpaint_tab input[type="file"]',
                 '#img2img input[type="file"]'
             ];
+        } else if (targetMode === "controlnet_i2i") {
+            const controlNetScopes = ['#img2img', '#img2img_tab', '[id*="img2img"]'];
+            const img2imgTab = findTabButton(/\bimg2img\b/i);
+            if (img2imgTab) {
+                img2imgTab.click();
+                await new Promise((r) => setTimeout(r, 300));
+            }
+
+            tabButton = findTabButtonInScopes(
+                controlNetScopes,
+                /\bcontrolnet\b/i
+            );
+            inputSelectorCandidates = [
+                '#img2img_controlnet input[type="file"]',
+                '#img2img [id*="controlnet"] input[type="file"]',
+                '#img2img [class*="controlnet"] input[type="file"]',
+                '[id*="img2img"] [id*="controlnet"] input[type="file"]',
+                '[id*="img2img"] [class*="controlnet"] input[type="file"]'
+            ];
+            findInputOpts = { allowGenericFallback: false };
+
+            if (tabButton) {
+                tabButton.click();
+                await new Promise((r) => setTimeout(r, 450));
+            }
+
+            const byKnownIds = await ensureControlNetIndependentByKnownIds();
+            if (!byKnownIds) {
+                await ensureControlNetIndependentUploadEnabled(controlNetScopes);
+            }
+            await new Promise((r) => setTimeout(r, 120));
+        } else if (targetMode === "controlnet_t2i") {
+            const controlNetScopes = ['#txt2img', '#txt2img_tab', '[id*="txt2img"]'];
+            const txt2imgTab = findTabButton(/\btxt2img\b/i);
+            if (txt2imgTab) {
+                txt2imgTab.click();
+                await new Promise((r) => setTimeout(r, 300));
+            }
+
+            tabButton = findTabButtonInScopes(
+                controlNetScopes,
+                /\bcontrolnet\b/i
+            );
+            inputSelectorCandidates = [
+                '#txt2img_controlnet input[type="file"]',
+                '#txt2img [id*="controlnet"] input[type="file"]',
+                '#txt2img [class*="controlnet"] input[type="file"]',
+                '[id*="txt2img"] [id*="controlnet"] input[type="file"]',
+                '[id*="txt2img"] [class*="controlnet"] input[type="file"]'
+            ];
+            findInputOpts = { allowGenericFallback: false };
+
+            if (tabButton) {
+                tabButton.click();
+                await new Promise((r) => setTimeout(r, 450));
+            }
+        } else {
+            setStatus(`Unknown target: ${targetMode}`);
+            return;
         }
 
-        if (tabButton) {
+        if (tabButton && targetMode !== "controlnet_i2i" && targetMode !== "controlnet_t2i") {
             tabButton.click();
             await new Promise((r) => setTimeout(r, 450));
         }
 
-        const targetInput = findBestFileInput(inputSelectorCandidates);
-
+        let targetInput = findBestFileInput(inputSelectorCandidates, findInputOpts);
         if (!targetInput) {
             setStatus(`Target input not found: ${targetMode}`);
             return;
         }
 
-        const dt = new DataTransfer();
-        dt.items.add(file);
-        targetInput.files = dt.files;
-        targetInput.dispatchEvent(new Event("change", { bubbles: true }));
+        assignFileToInput(targetInput, file);
+
+        // ControlNet UI may rebuild the input right after mode switch.
+        // Retry once more after a short delay to make the upload stick.
+        if (targetMode === "controlnet_i2i" || targetMode === "controlnet_t2i") {
+            await new Promise((r) => setTimeout(r, 380));
+            targetInput = findBestFileInput(inputSelectorCandidates, findInputOpts);
+            if (targetInput) {
+                assignFileToInput(targetInput, file);
+            }
+        }
 
         setStatus(`Sent to ${targetMode}`);
     }
@@ -2487,6 +2847,7 @@
             if (!ok) return;
             bindCanvasDropZone();
             bindMiddleMouseCameraControls();
+            bindStageActionsOverlay();
             bindDrawingControls();
             bindDrawingCursorPreview();
             bindObjectOpacityControls();
@@ -2512,6 +2873,8 @@
             const exportBtn = document.getElementById("composer-export-btn");
             const sendImg2ImgBtn = document.getElementById("composer-send-img2img-btn");
             const sendInpaintBtn = document.getElementById("composer-send-inpaint-btn");
+            const sendControlNetT2IBtn = document.getElementById("composer-send-controlnet-t2i-btn");
+            const sendControlNetI2IBtn = document.getElementById("composer-send-controlnet-i2i-btn");
 
             clearBtn?.addEventListener("click", () => {
                 disableDrawingMode(true);
@@ -2594,6 +2957,8 @@
 
             sendImg2ImgBtn?.addEventListener("click", () => sendToForgeTarget("img2img"));
             sendInpaintBtn?.addEventListener("click", () => sendToForgeTarget("inpaint"));
+            sendControlNetT2IBtn?.addEventListener("click", () => sendToForgeTarget("controlnet_t2i"));
+            sendControlNetI2IBtn?.addEventListener("click", () => sendToForgeTarget("controlnet_i2i"));
 
             composerInitialized = true;
             setStatus("Composer initialized");
