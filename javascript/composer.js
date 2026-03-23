@@ -142,6 +142,31 @@
         }, HISTORY_CAPTURE_DELAY_MS);
     }
 
+    function flushHistoryCaptureNow() {
+        if (!canvas || historyRestoring) return;
+
+        if (historyCaptureTimer) {
+            clearTimeout(historyCaptureTimer);
+            historyCaptureTimer = null;
+        }
+
+        const snapshot = getHistorySnapshot();
+        if (!snapshot) return;
+
+        const last = historyUndoStack[historyUndoStack.length - 1];
+        if (last?.key === snapshot.key) {
+            updateHistoryButtons();
+            return;
+        }
+
+        historyUndoStack.push(snapshot);
+        if (historyUndoStack.length > HISTORY_LIMIT) {
+            historyUndoStack.shift();
+        }
+        historyRedoStack = [];
+        updateHistoryButtons();
+    }
+
     function restoreHistorySnapshot(snapshot, successText) {
         if (!canvas || !snapshot || historyRestoring) return false;
 
@@ -152,13 +177,25 @@
         }
         updateHistoryButtons();
 
+        const prevViewportTransform = Array.isArray(canvas.viewportTransform)
+            ? canvas.viewportTransform.slice()
+            : null;
+        const nextSceneWidth = clampToStepSize(snapshot.sceneWidth ?? sceneWidth);
+        const nextSceneHeight = clampToStepSize(snapshot.sceneHeight ?? sceneHeight);
+        const sizeChanged = nextSceneWidth !== sceneWidth || nextSceneHeight !== sceneHeight;
+
         canvas.discardActiveObject();
-        sceneWidth = clampToStepSize(snapshot.sceneWidth ?? sceneWidth);
-        sceneHeight = clampToStepSize(snapshot.sceneHeight ?? sceneHeight);
-        syncCanvasSizeControls();
-        fitCanvasSize();
+        if (sizeChanged) {
+            sceneWidth = nextSceneWidth;
+            sceneHeight = nextSceneHeight;
+            syncCanvasSizeControls();
+            fitCanvasSize();
+        }
 
         canvas.loadFromJSON(snapshot.canvasJson, () => {
+            if (prevViewportTransform && !sizeChanged && typeof canvas.setViewportTransform === "function") {
+                canvas.setViewportTransform(prevViewportTransform);
+            }
             refreshBackgroundReference();
             canvas.renderAll();
             syncTextColorControlFromSelection();
@@ -233,11 +270,57 @@
         const onHistoryChange = () => {
             scheduleHistoryCapture();
         };
+        const EPS = 0.0001;
+        const changed = (a, b) => Math.abs((Number(a) || 0) - (Number(b) || 0)) > EPS;
+
+        const rememberBeforeTransform = (target) => {
+            if (!target) return;
+            target.__composerBeforeTransform = {
+                left: target.left,
+                top: target.top,
+                scaleX: target.scaleX,
+                scaleY: target.scaleY,
+                angle: target.angle,
+                skewX: target.skewX,
+                skewY: target.skewY
+            };
+        };
+
+        const shouldTrackModified = (target) => {
+            if (!target) return true;
+            const before = target.__composerBeforeTransform;
+            target.__composerBeforeTransform = null;
+            if (!before) return true;
+
+            const moved = changed(before.left, target.left) || changed(before.top, target.top);
+            const scaledOrSkewed = changed(before.scaleX, target.scaleX)
+                || changed(before.scaleY, target.scaleY)
+                || changed(before.skewX, target.skewX)
+                || changed(before.skewY, target.skewY);
+            const rotated = changed(before.angle, target.angle);
+
+            // Ignore pure translate moves in undo stack.
+            return scaledOrSkewed || rotated || !moved;
+        };
 
         canvas.on("object:added", onHistoryChange);
         canvas.on("object:removed", onHistoryChange);
-        canvas.on("object:modified", onHistoryChange);
+        canvas.on("before:transform", (e) => {
+            rememberBeforeTransform(e?.transform?.target);
+        });
+        canvas.on("object:modified", (e) => {
+            if (!shouldTrackModified(e?.target)) return;
+            onHistoryChange();
+        });
         canvas.on("path:created", onHistoryChange);
+        canvas.on("erasing:end", () => {
+            flushHistoryCaptureNow();
+        });
+        canvas.on("mouse:up", () => {
+            if (drawingTool === "eraser" && canvas.isDrawingMode && !eraserFallbackActive) {
+                flushHistoryCaptureNow();
+            }
+        });
         canvas.on("text:changed", onHistoryChange);
         canvas.__composerHistoryBound = true;
     }
@@ -413,6 +496,27 @@
             width: canvas.getWidth() / zoom,
             height: canvas.getHeight() / zoom
         };
+    }
+
+    function getSceneFocusCenter() {
+        if (!canvas || !window.fabric) {
+            return { x: sceneWidth / 2, y: sceneHeight / 2 };
+        }
+
+        const fabricUtil = window.fabric?.util;
+        const vpt = canvas.viewportTransform;
+        if (Array.isArray(vpt) && fabricUtil?.invertTransform && fabricUtil?.transformPoint) {
+            const centerOnScreen = new window.fabric.Point(canvas.getWidth() / 2, canvas.getHeight() / 2);
+            const inv = fabricUtil.invertTransform(vpt);
+            const centerInScene = fabricUtil.transformPoint(centerOnScreen, inv);
+            return {
+                x: centerInScene.x,
+                y: centerInScene.y
+            };
+        }
+
+        const viewport = getSceneViewportSize();
+        return { x: viewport.width / 2, y: viewport.height / 2 };
     }
 
     function clampToStepSize(value) {
@@ -612,7 +716,6 @@
         backgroundObject.setCoords();
         canvas.setActiveObject(backgroundObject);
         canvas.requestRenderAll();
-        scheduleHistoryCapture();
         setStatus(`Background scale: ${Math.round(nextScale * 100)}%`);
     }
 
@@ -633,7 +736,6 @@
         obj.setCoords();
         canvas.setActiveObject(obj);
         canvas.requestRenderAll();
-        scheduleHistoryCapture();
         setStatus(`Object scale: ${Math.round(nextScale * 100)}%`);
     }
 
@@ -684,12 +786,12 @@
 
         const maxSize = 260;
         const scale = Math.min(1, maxSize / realW, maxSize / realH);
-        const viewport = getSceneViewportSize();
+        const focus = getSceneFocusCenter();
 
         img.scale(scale);
         img.set({
-            left: Math.max(20, viewport.width / 2 - img.getScaledWidth() / 2),
-            top: Math.max(20, viewport.height / 2 - img.getScaledHeight() / 2)
+            left: Math.max(20, focus.x - img.getScaledWidth() / 2),
+            top: Math.max(20, focus.y - img.getScaledHeight() / 2)
         });
 
         canvas.add(img);
@@ -739,10 +841,10 @@
             return;
         }
 
-        const viewport = getSceneViewportSize();
+        const focus = getSceneFocusCenter();
         const text = new window.fabric.IText(safeText, {
-            left: Math.max(16, Math.round(viewport.width / 2)),
-            top: Math.max(16, Math.round(viewport.height / 2)),
+            left: Math.max(16, Math.round(focus.x)),
+            top: Math.max(16, Math.round(focus.y)),
             originX: "center",
             originY: "center",
             fill: currentTextColor,
@@ -765,10 +867,10 @@
     }
 
     function getShapeBaseProps() {
-        const viewport = getSceneViewportSize();
+        const focus = getSceneFocusCenter();
         return {
-            left: Math.max(24, Math.round(viewport.width / 2)),
-            top: Math.max(24, Math.round(viewport.height / 2)),
+            left: Math.max(24, Math.round(focus.x)),
+            top: Math.max(24, Math.round(focus.y)),
             originX: "center",
             originY: "center",
             fill: currentTextColor,
@@ -1674,7 +1776,11 @@
         };
 
         const onUp = () => {
+            const hadDrawing = eraserFallbackDrawing;
             eraserFallbackDrawing = false;
+            if (hadDrawing) {
+                flushHistoryCaptureNow();
+            }
         };
 
         upper.addEventListener("mousedown", onDown);
