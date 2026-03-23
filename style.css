@@ -1,0 +1,310 @@
+.forge-composer-root {
+    padding: 12px;
+}
+
+#forge-composer-root .composer-toolbar {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-bottom: 12px;
+    align-items: center;
+}
+
+#forge-composer-root .composer-btn {
+    box-sizing: border-box;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: #1f2936;
+    border: 1px solid #555;
+    color: #eee;
+    height: 36px;
+    min-height: 36px;
+    padding: 0 14px;
+    line-height: 1;
+    border-radius: 8px;
+    cursor: pointer;
+    user-select: none;
+    white-space: nowrap;
+    margin: 0;
+    vertical-align: middle;
+    font-size: 14px;
+    font-weight: 500;
+}
+
+#forge-composer-root label.composer-btn {
+    position: relative;
+}
+
+#forge-composer-root .composer-color-wrap {
+    gap: 8px;
+    padding-right: 8px;
+}
+
+#forge-composer-root .composer-color-picker {
+    width: 32px;
+    height: 24px;
+    border: 1px solid #666;
+    border-radius: 6px;
+    background: transparent;
+    padding: 0;
+    cursor: pointer;
+}
+
+#forge-composer-root .composer-shape-icon {
+    display: block;
+    width: 14px;
+    height: 14px;
+    stroke: #f2f2f2;
+    fill: none;
+    stroke-width: 1.5;
+    stroke-linejoin: round;
+    stroke-linecap: round;
+}
+
+#forge-composer-root label.composer-btn > input[type="file"] {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    opacity: 0;
+    pointer-events: none;
+}
+
+#forge-composer-root button.composer-btn {
+    appearance: none;
+}
+
+#forge-composer-root .composer-btn-primary {
+    border-color: #ff8c00;
+    box-shadow: 0 0 0 1px rgba(255,140,0,.25) inset;
+}
+
+.composer-stage-wrap {
+    width: 100%;
+    min-height: 512px;
+    max-height: 512px;
+    height: 512px;
+    border: 1px solid #444;
+    border-radius: 10px;
+    overflow: hidden;
+    background: #1f2936;
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.composer-draw-overlay {
+    position: absolute;
+    top: 10px;
+    left: 10px;
+    z-index: 5;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 8px;
+    border-radius: 8px;
+    border: 1px solid #3f3f3f;
+    background: rgba(20, 26, 36, 0.88);
+    backdrop-filter: blur(2px);
+}
+
+.composer-opacity-overlay {
+    position: absolute;
+    top: 60px;
+    left: 10px;
+    z-index: 5;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 10px;
+    border-radius: 8px;
+    border: 1px solid #3f3f3f;
+    background: rgba(20, 26, 36, 0.88);
+    backdrop-filter: blur(2px);
+    min-width: 230px;
+}
+
+.composer-opacity-label {
+    color: #dfe7f5;
+    font-size: 12px;
+    line-height: 1;
+    white-space: nowrap;
+}
+
+.composer-opacity-range {
+    width: 130px;
+    height: 18px;
+}
+
+.composer-draw-tool-btn {
+    width: 26px;
+    height: 26px;
+    min-width: 26px;
+    border-radius: 6px;
+    border: 1px solid #596579;
+    background: #253244;
+    color: #f2f2f2;
+    cursor: pointer;
+    padding: 0;
+    line-height: 1;
+    font-size: 14px;
+}
+
+.composer-draw-tool-btn.is-active {
+    border-color: #ff8c00;
+    box-shadow: 0 0 0 1px rgba(255,140,0,0.25) inset;
+}
+
+.composer-draw-color {
+    width: 28px;
+    height: 22px;
+    border: 1px solid #666;
+    border-radius: 6px;
+    background: transparent;
+    padding: 0;
+    cursor: pointer;
+}
+
+.composer-draw-label {
+    color: #dfe7f5;
+    font-size: 11px;
+    line-height: 1;
+    white-space: nowrap;
+}
+
+.composer-draw-range {
+    width: 86px;
+    height: 18px;
+}
+
+.composer-draw-cursor {
+    position: absolute;
+    left: 0;
+    top: 0;
+    z-index: 6;
+    pointer-events: none;
+    border-radius: 999px;
+    border: 1px solid rgba(255, 255, 255, 0.9);
+    box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.45);
+}
+
+.composer-draw-cursor.is-brush {
+    border-color: rgba(255, 255, 255, 0.9);
+}
+
+.composer-draw-cursor.is-eraser {
+    border-color: rgba(111, 209, 255, 0.95);
+    border-style: dashed;
+}
+
+.composer-stage-wrap.composer-drag-over {
+    border-color: #ff8c00;
+    box-shadow: 0 0 0 2px rgba(255,140,0,0.25) inset;
+    background: #243247;
+}
+
+#forge-composer-canvas {
+    display: block;
+    background: #000;
+}
+
+.composer-footer {
+    margin-top: 10px;
+    color: #bbb;
+    font-size: 13px;
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+
+.composer-hotkeys {
+    margin: 8px 0 0 auto;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 6px;
+    text-align: right;
+    color: #aeb8c9;
+    font-size: 12px;
+}
+
+.composer-hotkeys-row {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    display: flex;
+    gap: 6px 12px;
+    justify-content: flex-end;
+    flex-wrap: nowrap;
+}
+
+.composer-hotkeys li {
+    white-space: nowrap;
+}
+
+.composer-hotkeys kbd {
+    display: inline-block;
+    min-width: 16px;
+    padding: 1px 5px;
+    border-radius: 5px;
+    border: 1px solid #4c5f7a;
+    background: #1b2533;
+    color: #e3ebf7;
+    font-size: 11px;
+    line-height: 1.2;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+}
+
+@media (max-width: 900px) {
+    .composer-footer {
+        align-items: flex-start;
+    }
+
+    .composer-hotkeys {
+        margin-left: 0;
+        align-items: flex-start;
+        text-align: left;
+    }
+
+    .composer-hotkeys-row {
+        justify-content: flex-start;
+        flex-wrap: wrap;
+    }
+}
+
+#forge-composer-root .composer-size-controls {
+    box-sizing: border-box;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    margin-left: 4px;
+    min-height: 36px;
+    padding: 3px 8px;
+    border: 1px solid #3f3f3f;
+    border-radius: 8px;
+    background: #171717;
+}
+
+#forge-composer-root .composer-size-label {
+    color: #ddd;
+    font-size: 12px;
+    min-width: 22px;
+    line-height: 1;
+}
+
+#forge-composer-root .composer-slider {
+    width: 120px;
+    height: 20px;
+}
+
+#forge-composer-root .composer-size-value {
+    min-width: 34px;
+    text-align: right;
+    color: #ddd;
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
+}
