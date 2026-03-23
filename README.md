@@ -2,6 +2,9 @@
 
 Composer extension for Forge/Neo that helps build scene layouts before Img2Img/Inpaint.
 
+<img width="1667" height="718" alt="1234567" src="https://github.com/user-attachments/assets/10cf026e-a87a-4597-b41f-feaadbcb4e02" />
+
+
 ## Installation
 
 1. Copy this extension folder to your Forge extensions directory:
