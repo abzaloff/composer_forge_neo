@@ -2167,38 +2167,63 @@
         )
             ? prevActive.getObjects().slice()
             : null;
+        const prevViewportTransform = Array.isArray(canvas.viewportTransform)
+            ? canvas.viewportTransform.slice()
+            : [1, 0, 0, 1, 0, 0];
+        const prevWidth = canvas.getWidth();
+        const prevHeight = canvas.getHeight();
+        const canvasEl = document.getElementById("forge-composer-canvas");
+        const prevCanvasElWidth = canvasEl?.style.width || "";
+        const prevCanvasElHeight = canvasEl?.style.height || "";
+        const wrapper = canvas.wrapperEl || null;
+        const prevWrapperWidth = wrapper?.style.width || "";
+        const prevWrapperHeight = wrapper?.style.height || "";
+        const prevWrapperMargin = wrapper?.style.margin || "";
 
         try {
             if (prevActive) {
                 canvas.discardActiveObject();
             }
 
-            // Export current visible viewport (pan/zoom included)
-            // but force exact scene dimensions to avoid off-by-one rounding.
+            // Render full scene at real output resolution (independent from preview size).
+            canvas.setViewportTransform([1, 0, 0, 1, 0, 0]);
+            canvas.setWidth(sceneWidth);
+            canvas.setHeight(sceneHeight);
+            if (canvasEl) {
+                canvasEl.style.width = `${sceneWidth}px`;
+                canvasEl.style.height = `${sceneHeight}px`;
+            }
+            if (wrapper) {
+                wrapper.style.width = `${sceneWidth}px`;
+                wrapper.style.height = `${sceneHeight}px`;
+                wrapper.style.margin = "0";
+            }
+
             canvas.renderAll();
             const src = canvas.lowerCanvasEl;
             if (!src) {
                 setStatus("Export source canvas not ready");
                 return null;
             }
-
-            const out = document.createElement("canvas");
-            out.width = sceneWidth;
-            out.height = sceneHeight;
-            const ctx = out.getContext("2d");
-            if (!ctx) {
-                setStatus("Export context init failed");
-                return null;
-            }
-
-            ctx.imageSmoothingEnabled = true;
-            ctx.drawImage(src, 0, 0, out.width, out.height);
-            return out.toDataURL("image/png");
+            return src.toDataURL("image/png");
         } catch (err) {
             console.error(err);
             setStatus("Export failed");
             return null;
         } finally {
+            canvas.setWidth(prevWidth);
+            canvas.setHeight(prevHeight);
+            canvas.setViewportTransform(prevViewportTransform);
+            if (canvasEl) {
+                canvasEl.style.width = prevCanvasElWidth;
+                canvasEl.style.height = prevCanvasElHeight;
+            }
+            if (wrapper) {
+                wrapper.style.width = prevWrapperWidth;
+                wrapper.style.height = prevWrapperHeight;
+                wrapper.style.margin = prevWrapperMargin;
+            }
+
             if (prevSelectionItems && prevSelectionItems.length > 0 && window.fabric?.ActiveSelection) {
                 try {
                     const restoredSelection = new window.fabric.ActiveSelection(prevSelectionItems, { canvas });
