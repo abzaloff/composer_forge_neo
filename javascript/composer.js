@@ -737,11 +737,17 @@
         const baseScale = Math.max(0.02, Math.min(currentScaleX, currentScaleY));
         const factor = deltaY < 0 ? 1.06 : 0.94;
         const nextScale = Math.max(0.02, Math.min(20, baseScale * factor));
+        const centerPoint = typeof obj.getCenterPoint === "function"
+            ? obj.getCenterPoint()
+            : null;
 
         obj.set({
             scaleX: nextScale,
             scaleY: nextScale
         });
+        if (centerPoint && typeof obj.setPositionByOrigin === "function") {
+            obj.setPositionByOrigin(centerPoint, "center", "center");
+        }
 
         obj.setCoords();
         canvas.setActiveObject(obj);
