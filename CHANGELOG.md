@@ -1,5 +1,27 @@
 # Changelog
 
+## [stable] - 2026-03-24
+
+### Added
+
+- New shape tools: triangle (first in shape list) and octagon (last in shape list)
+- Drawing hotkeys: `B` (brush toggle), `E` (eraser toggle)
+- `Alt + Mouse Wheel` shortcut to change brush/eraser size
+- Unified color picker: one control (near brush/eraser) for brush and text/shape color
+
+### Changed
+
+- In-canvas overlays moved to a centered second toolbar row; canvas area is now clean
+- Top toolbar row aligned to center
+- Stage visual height increased from `512px` to `640px`
+
+### Fixed
+
+- `Ctrl + Mouse Wheel` scaling for selected objects now keeps center pivot (including images)
+- Flip behavior for groups now mirrors as a whole (left/right swap is correct)
+- Flip behavior for single objects now mirrors with stable center handling
+- Undo after flip now reverts only the flip action (not the preceding move)
+
 ## [stable] - 2026-03-22
 
 ### Added
