@@ -3,13 +3,16 @@
     let canvas = null;
     let backgroundObject = null;
     let fabricLoadPromise = null;
-    const STAGE_MIN_HEIGHT = 640;
-    const STAGE_MAX_HEIGHT = 640;
+    const STAGE_MIN_HEIGHT = 512;
+    const STAGE_MAX_HEIGHT = 1024;
+    const STAGE_DEFAULT_HEIGHT = 640;
+    const STAGE_STEP = 64;
     const MIN_SCENE_SIZE = 64;
     const MAX_SCENE_SIZE = 2048;
     const SCENE_STEP = 64;
     let sceneWidth = 1024;
     let sceneHeight = 1024;
+    let stageHeight = STAGE_DEFAULT_HEIGHT;
     let displayScale = 1;
     let currentTextColor = "#ffffff";
     let removeBgInFlight = false;
@@ -338,9 +341,7 @@
     function applyCompactLayout() {
         const wrap = document.querySelector(".composer-stage-wrap");
         if (wrap) {
-            wrap.style.minHeight = `${STAGE_MIN_HEIGHT}px`;
-            wrap.style.maxHeight = `${STAGE_MAX_HEIGHT}px`;
-            wrap.style.height = `${STAGE_MAX_HEIGHT}px`;
+            applyStageHeight(false);
             wrap.style.overflow = "hidden";
         }
 
@@ -533,6 +534,96 @@
         const numeric = Number(value) || MIN_SCENE_SIZE;
         const clamped = Math.max(MIN_SCENE_SIZE, Math.min(MAX_SCENE_SIZE, numeric));
         return Math.round(clamped / SCENE_STEP) * SCENE_STEP;
+    }
+
+    function clampStageHeight(value) {
+        const numeric = Number(value) || STAGE_DEFAULT_HEIGHT;
+        const clamped = Math.max(STAGE_MIN_HEIGHT, Math.min(STAGE_MAX_HEIGHT, numeric));
+        return Math.round(clamped / STAGE_STEP) * STAGE_STEP;
+    }
+
+    function ensureStageHeightOverlay() {
+        const stageWrap = document.querySelector(".composer-stage-wrap");
+        if (!stageWrap) return null;
+
+        let overlay = document.getElementById("composer-stage-height-overlay");
+        let slider = document.getElementById("composer-stage-height-slider");
+        let value = document.getElementById("composer-stage-height-value");
+
+        if (!overlay || !slider || !value) {
+            overlay = document.createElement("div");
+            overlay.id = "composer-stage-height-overlay";
+            overlay.className = "composer-stage-height-overlay";
+
+            const label = document.createElement("label");
+            label.className = "composer-size-label";
+            label.htmlFor = "composer-stage-height-slider";
+            label.textContent = "H:";
+
+            slider = document.createElement("input");
+            slider.id = "composer-stage-height-slider";
+            slider.className = "composer-slider";
+            slider.type = "range";
+            slider.min = String(STAGE_MIN_HEIGHT);
+            slider.max = String(STAGE_MAX_HEIGHT);
+            slider.step = String(STAGE_STEP);
+
+            value = document.createElement("span");
+            value.id = "composer-stage-height-value";
+            value.className = "composer-size-value";
+
+            overlay.appendChild(label);
+            overlay.appendChild(slider);
+            overlay.appendChild(value);
+            stageWrap.appendChild(overlay);
+        }
+
+        return { overlay, slider, value };
+    }
+
+    function syncStageHeightOverlay() {
+        const controls = ensureStageHeightOverlay();
+        if (!controls) return;
+        controls.slider.value = String(stageHeight);
+        controls.value.textContent = String(stageHeight);
+    }
+
+    function applyStageHeight(syncOverlay = true) {
+        const stageWrap = document.querySelector(".composer-stage-wrap");
+        if (!stageWrap) return;
+        stageHeight = clampStageHeight(stageHeight);
+        stageWrap.style.minHeight = `${stageHeight}px`;
+        stageWrap.style.maxHeight = `${stageHeight}px`;
+        stageWrap.style.height = `${stageHeight}px`;
+        if (syncOverlay) {
+            syncStageHeightOverlay();
+        }
+    }
+
+    function bindStageHeightOverlay() {
+        const controls = ensureStageHeightOverlay();
+        if (!controls || controls.slider.dataset.bound === "1") return;
+
+        const stop = (e) => {
+            e.stopPropagation();
+        };
+        controls.overlay.addEventListener("mousedown", stop);
+        controls.overlay.addEventListener("click", stop);
+        controls.overlay.addEventListener("wheel", stop, { passive: true });
+
+        syncStageHeightOverlay();
+
+        controls.slider.addEventListener("input", () => {
+            const next = clampStageHeight(controls.slider.value);
+            controls.slider.value = String(next);
+            controls.value.textContent = String(next);
+            if (next === stageHeight) return;
+            stageHeight = next;
+            applyStageHeight();
+            fitCanvasSize();
+        });
+
+        controls.slider.dataset.bound = "1";
     }
 
     function updateSizeLabels() {
@@ -3071,6 +3162,8 @@
             sendControlNetI2IBtn?.addEventListener("click", () => sendToForgeTarget("controlnet_i2i"));
 
             composerInitialized = true;
+            bindStageHeightOverlay();
+            applyStageHeight();
             setStatus("Composer initialized");
         });
     }

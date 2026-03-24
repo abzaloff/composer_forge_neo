@@ -121,6 +121,28 @@
     justify-content: center;
 }
 
+#forge-composer-root .composer-stage-height-overlay {
+    position: absolute;
+    right: 12px;
+    bottom: 10px;
+    z-index: 4;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 0;
+    border: none;
+    background: transparent;
+}
+
+#forge-composer-root .composer-stage-height-overlay .composer-slider {
+    width: 130px;
+    height: 18px;
+}
+
+#forge-composer-root .composer-stage-height-overlay .composer-size-value {
+    min-width: 34px;
+}
+
 .composer-secondary-toolbar {
     width: 100%;
     display: flex;

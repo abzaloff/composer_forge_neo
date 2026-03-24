@@ -57,6 +57,30 @@ Or without activating venv:
 venv\Scripts\python.exe -m pip install rembg
 ```
 
+## Troubleshooting: `scikit-image ... METADATA` error on startup
+
+In rare cases, Forge can fail during `Installing requirements` with an error like:
+
+`failed to open ... scikit_image-<version>.dist-info\\METADATA`
+
+This usually means `scikit-image` metadata in the local `venv` is corrupted (partial/broken install).  
+It is not specific to this extension UI code.
+
+Fix (Windows, run from Forge root folder):
+
+```powershell
+venv\Scripts\python.exe -m pip uninstall -y scikit-image
+venv\Scripts\python.exe -m pip install --no-cache-dir --force-reinstall scikit-image==0.25.2
+venv\Scripts\python.exe -m pip check
+```
+
+If uninstall fails, remove these folders manually from `venv\Lib\site-packages` and run install again:
+
+- `scikit_image-*.dist-info`
+- `skimage`
+
+If the issue still persists, recreate the `venv`.
+
 ## Notes
 
 - `Remove BG` works for selected image objects.
