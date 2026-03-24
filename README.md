@@ -43,18 +43,20 @@ Composer extension for Forge/Neo that helps build scene layouts before Img2Img/I
 
 This extension requires `rembg` for background removal.
 
-- Automatic install: `install.py` tries to install `rembg` on Forge startup.
+- Automatic install: `install.py` tries to install `rembg` on Forge startup using `--no-deps`.
+  This is intentional to avoid modifying Forge/Neo pinned dependency versions
+  (for example `scikit-image==0.25.2` from Forge requirements).
 - If automatic install fails, install manually in Forge venv:
 
 ```powershell
 venv\Scripts\activate
-pip install rembg
+pip install --no-deps rembg
 ```
 
 Or without activating venv:
 
 ```powershell
-venv\Scripts\python.exe -m pip install rembg
+venv\Scripts\python.exe -m pip install --no-deps rembg
 ```
 
 ## Troubleshooting: `scikit-image ... METADATA` error on startup

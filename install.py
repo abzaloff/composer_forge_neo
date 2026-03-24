@@ -22,8 +22,17 @@ def run_pip_install(*packages: str) -> None:
 def install() -> None:
     if not is_installed("rembg"):
         print("[composer_forge_neo] rembg is missing, starting installation")
-        run_pip_install("rembg")
-        print("[composer_forge_neo] rembg installation completed")
+        try:
+            # Keep Forge/Neo pinned deps (for example scikit-image from requirements.txt)
+            # untouched: install extension package itself without dependency resolution.
+            run_pip_install("--no-deps", "rembg")
+            print("[composer_forge_neo] rembg installation completed")
+        except subprocess.CalledProcessError as err:
+            print(f"[composer_forge_neo] rembg auto-install failed (non-fatal): {err}")
+            print(
+                "[composer_forge_neo] You can install it manually with:\n"
+                f'  "{sys.executable}" -m pip install --no-deps rembg'
+            )
 
 
 try:
