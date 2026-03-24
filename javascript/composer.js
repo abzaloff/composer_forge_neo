@@ -1196,24 +1196,55 @@
             return;
         }
 
+        // Capture current state before flip so Undo reverts only the mirror action,
+        // even if the latest operation before it was a pure move (not tracked separately).
+        flushHistoryCaptureNow();
+
         const isX = axis === "x";
         const prop = isX ? "flipX" : "flipY";
+        const normalizeAngle = (value) => {
+            let a = Number(value) || 0;
+            while (a > 180) a -= 360;
+            while (a <= -180) a += 360;
+            return a;
+        };
+        const applyMirrorToObject = (obj) => {
+            if (!obj) return;
+            const centerPoint = typeof obj.getCenterPoint === "function"
+                ? obj.getCenterPoint()
+                : null;
+            const nextAngle = normalizeAngle(-(Number(obj.angle) || 0));
+            obj.set(prop, !obj[prop]);
+            obj.set("angle", nextAngle);
+            if (centerPoint && typeof obj.setPositionByOrigin === "function") {
+                obj.setPositionByOrigin(centerPoint, "center", "center");
+            }
+            obj.setCoords();
+        };
 
         if (active.type === "activeSelection" && typeof active.forEachObject === "function") {
-            let changed = 0;
-            active.forEachObject((obj) => {
-                obj.set(prop, !obj[prop]);
-                obj.setCoords();
-                changed += 1;
-            });
+            const selectedObjects = active.getObjects ? active.getObjects().slice() : [];
+            const changed = selectedObjects.length;
+            const group = typeof active.toGroup === "function" ? active.toGroup() : null;
+            if (!group) {
+                setStatus("Flip failed");
+                return;
+            }
+
+            applyMirrorToObject(group);
+
+            if (typeof group.toActiveSelection === "function") {
+                group.toActiveSelection();
+            }
+            const nextActive = canvas.getActiveObject();
+            if (nextActive) nextActive.setCoords();
             canvas.requestRenderAll();
             if (changed > 0) scheduleHistoryCapture();
             setStatus(changed > 0 ? `Flipped ${changed} object(s)` : "Nothing to flip");
             return;
         }
 
-        active.set(prop, !active[prop]);
-        active.setCoords();
+        applyMirrorToObject(active);
         canvas.setActiveObject(active);
         canvas.requestRenderAll();
         scheduleHistoryCapture();
