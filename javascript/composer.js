@@ -3,8 +3,8 @@
     let canvas = null;
     let backgroundObject = null;
     let fabricLoadPromise = null;
-    const STAGE_MIN_HEIGHT = 512;
-    const STAGE_MAX_HEIGHT = 512;
+    const STAGE_MIN_HEIGHT = 640;
+    const STAGE_MAX_HEIGHT = 640;
     const MIN_SCENE_SIZE = 64;
     const MAX_SCENE_SIZE = 2048;
     const SCENE_STEP = 64;
