@@ -1490,6 +1490,15 @@
                 return;
             }
 
+            const isCopyShortcut = (e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey
+                && (e.key === "c" || e.key === "C");
+            if (isCopyShortcut) {
+                e.preventDefault();
+                e.stopPropagation();
+                void copyCanvasCompositionToClipboard();
+                return;
+            }
+
             const isUndoShortcut = (e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey
                 && (e.key === "z" || e.key === "Z");
             if (isUndoShortcut && undoHistory()) {
@@ -1579,6 +1588,67 @@
         });
 
         document.__composerPasteBound = true;
+    }
+
+    async function copyCanvasCompositionToClipboard() {
+        if (!canvas) {
+            setStatus("Canvas not ready");
+            return false;
+        }
+
+        const root = document.getElementById("forge-composer-root");
+        if (!root || !isElementVisible(root)) {
+            return false;
+        }
+
+        const dataUrl = exportCanvasToDataUrl();
+        if (!dataUrl) return false;
+
+        try {
+            const blob = dataURLtoBlob(dataUrl);
+            const clipboard = navigator?.clipboard;
+            const ClipboardItemCtor = window.ClipboardItem || (typeof ClipboardItem !== "undefined" ? ClipboardItem : null);
+
+            if (clipboard?.write && ClipboardItemCtor) {
+                const mime = blob.type || "image/png";
+                await clipboard.write([new ClipboardItemCtor({ [mime]: blob })]);
+                setStatus("Scene copied to clipboard");
+                return true;
+            }
+
+            if (clipboard?.writeText) {
+                await clipboard.writeText(dataUrl);
+                setStatus("Image API unavailable, copied PNG data URL");
+                return true;
+            }
+        } catch (err) {
+            console.error(err);
+            setStatus("Copy to clipboard failed");
+            return false;
+        }
+
+        setStatus("Clipboard copy is not supported here");
+        return false;
+    }
+
+    function bindCanvasContextCopy() {
+        if (!canvas || canvas.__composerContextCopyBound) return;
+        const upper = canvas.upperCanvasEl;
+        if (!upper) return;
+
+        upper.addEventListener("contextmenu", (e) => {
+            const root = document.getElementById("forge-composer-root");
+            if (!root || !isElementVisible(root)) return;
+
+            // Hold Shift to open browser native context menu when needed.
+            if (e.shiftKey) return;
+
+            e.preventDefault();
+            e.stopPropagation();
+            void copyCanvasCompositionToClipboard();
+        });
+
+        canvas.__composerContextCopyBound = true;
     }
 
     function hexToRgba(hexColor, alphaPercent) {
@@ -3051,6 +3121,7 @@
             bindCanvasSizeControls();
             bindDeleteShortcut();
             bindClipboardPaste();
+            bindCanvasContextCopy();
             bindHistoryButtons();
             bindHistoryTracking();
             resetHistoryToCurrentScene();
