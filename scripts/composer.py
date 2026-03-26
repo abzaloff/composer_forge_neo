@@ -102,6 +102,25 @@ COMPOSER_HTML = """
         </div>
 
         <div id="composer-stage-actions-overlay" class="composer-stage-actions-overlay" aria-label="Composer actions">
+            <div class="composer-text-style-controls" aria-label="Text style controls">
+                <select id="composer-font-family" class="composer-font-select" title="Font family" aria-label="Font family">
+                    <option value="Arial">Arial</option>
+                    <option value="Segoe UI">Segoe UI</option>
+                    <option value="Tahoma">Tahoma</option>
+                    <option value="Verdana">Verdana</option>
+                    <option value="Trebuchet MS">Trebuchet MS</option>
+                    <option value="Times New Roman">Times New Roman</option>
+                    <option value="Georgia">Georgia</option>
+                    <option value="Courier New">Courier New</option>
+                    <option value="Impact">Impact</option>
+                </select>
+                <button id="composer-font-bold-btn" class="composer-btn composer-font-toggle-btn" type="button" title="Bold / Normal" aria-label="Toggle bold">
+                    <strong>B</strong>
+                </button>
+                <button id="composer-font-italic-btn" class="composer-btn composer-font-toggle-btn" type="button" title="Italic / Normal" aria-label="Toggle italic">
+                    <em>I</em>
+                </button>
+            </div>
             <button id="composer-remove-bg-btn" class="composer-btn" type="button">Remove BG</button>
             <button id="composer-layer-up-btn" class="composer-btn" type="button" title="Layer Up">&uarr;</button>
             <button id="composer-layer-down-btn" class="composer-btn" type="button" title="Layer Down">&darr;</button>

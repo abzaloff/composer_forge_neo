@@ -18,11 +18,13 @@ Composer extension for Forge/Neo that helps build scene layouts before Img2Img/I
 - Add and transform images on canvas
 - Remove image background (`Remove BG`) using `rembg`
 - Add editable text
+- Text style controls (second toolbar row): font family dropdown, bold toggle, italic toggle
 - Add geometric shapes: triangle, square, circle, pentagon, hexagon, octagon
 - Shared color picker for brush and text/shapes
 - Layer ordering (`up` / `down`)
 - Flip selected objects (horizontal / vertical)
 - Export scene to PNG
+- Copy scene to clipboard as PNG (`Ctrl+C` / `Cmd+C` or right-click on canvas)
 - Send scene directly to Img2Img, Inpaint, ControlNet T2I, or ControlNet I2I
 - Adjustable canvas size
 
@@ -33,11 +35,17 @@ Composer extension for Forge/Neo that helps build scene layouts before Img2Img/I
 - `E` - eraser (press again to turn off)
 - `Ctrl+D` - duplicate selected object(s)
 - `Ctrl+V` / `Cmd+V` - paste image from clipboard
+- `Ctrl+C` / `Cmd+C` - copy scene image to clipboard
 - `Ctrl + Mouse Wheel` - scale selected object
 - `Alt + Mouse Wheel` - change brush/eraser size
 - `Middle Mouse (hold) + Drag` - pan viewport
 - `Middle Mouse (hold) + Wheel` - zoom viewport
 - `Shift + Drop` - drop image as background (first file)
+
+## Mouse Actions
+
+- `Right Click` on canvas - copy scene image to clipboard
+- `Shift + Right Click` on canvas - open native browser context menu
 
 ## Dependency: rembg
 

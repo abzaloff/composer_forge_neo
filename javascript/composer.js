@@ -15,6 +15,9 @@
     let stageHeight = STAGE_DEFAULT_HEIGHT;
     let displayScale = 1;
     let currentTextColor = "#ffffff";
+    let currentTextFontFamily = "Arial";
+    let currentTextFontWeight = "400";
+    let currentTextFontStyle = "normal";
     let removeBgInFlight = false;
     let drawingTool = null;
     let drawColor = "#ff0000";
@@ -956,8 +959,9 @@
             originY: "center",
             fill: currentTextColor,
             fontSize: 48,
-            fontFamily: "Arial",
-            fontWeight: "600",
+            fontFamily: currentTextFontFamily,
+            fontWeight: currentTextFontWeight,
+            fontStyle: currentTextFontStyle,
             stroke: "rgba(0,0,0,0.35)",
             strokeWidth: 1,
             paintFirst: "stroke",
@@ -1073,6 +1077,174 @@
 
     function isColorEditableObject(obj) {
         return isTextObject(obj) || isShapeObject(obj);
+    }
+
+    function normalizeFontWeight(value) {
+        if (value === "bold") return "700";
+        if (value === "normal") return "400";
+        const num = Math.round(Number(value));
+        if (Number.isFinite(num) && num >= 100 && num <= 900) {
+            return String(num);
+        }
+        return "400";
+    }
+
+    function isBoldWeight(value) {
+        const normalized = normalizeFontWeight(value);
+        return Number(normalized) >= 600;
+    }
+
+    function normalizeFontStyle(value) {
+        const text = String(value || "").toLowerCase();
+        if (text === "italic" || text === "oblique") return "italic";
+        return "normal";
+    }
+
+    function updateTextStyleControlsState() {
+        const fontSelect = document.getElementById("composer-font-family");
+        const boldBtn = document.getElementById("composer-font-bold-btn");
+        const italicBtn = document.getElementById("composer-font-italic-btn");
+
+        if (fontSelect) {
+            const hasOption = Array.from(fontSelect.options).some((opt) => opt.value === currentTextFontFamily);
+            if (!hasOption && fontSelect.options.length > 0) {
+                currentTextFontFamily = fontSelect.options[0].value;
+            }
+            fontSelect.value = currentTextFontFamily;
+        }
+
+        if (boldBtn) {
+            boldBtn.classList.toggle("is-active", isBoldWeight(currentTextFontWeight));
+        }
+        if (italicBtn) {
+            italicBtn.classList.toggle("is-active", normalizeFontStyle(currentTextFontStyle) === "italic");
+        }
+    }
+
+    function applyTextStyleToSelection(stylePatch, silent = false) {
+        if (!canvas) return false;
+        const active = canvas.getActiveObject();
+        if (!active) return false;
+
+        const patch = {};
+        if (typeof stylePatch?.fontFamily === "string" && stylePatch.fontFamily.trim()) {
+            patch.fontFamily = stylePatch.fontFamily.trim();
+        }
+        if (typeof stylePatch?.fontWeight !== "undefined") {
+            patch.fontWeight = normalizeFontWeight(stylePatch.fontWeight);
+        }
+        if (typeof stylePatch?.fontStyle !== "undefined") {
+            patch.fontStyle = normalizeFontStyle(stylePatch.fontStyle);
+        }
+
+        const keys = Object.keys(patch);
+        if (keys.length === 0) return false;
+
+        let changed = 0;
+        const applyToObject = (obj) => {
+            if (!isTextObject(obj)) return;
+
+            let localChanged = false;
+            keys.forEach((key) => {
+                const nextValue = patch[key];
+                if (obj[key] === nextValue) return;
+                obj.set(key, nextValue);
+                localChanged = true;
+            });
+
+            if (localChanged) {
+                obj.setCoords();
+                changed += 1;
+            }
+        };
+
+        if (active.type === "activeSelection" && typeof active.forEachObject === "function") {
+            active.forEachObject((obj) => applyToObject(obj));
+        } else {
+            applyToObject(active);
+        }
+
+        if (changed > 0) {
+            canvas.requestRenderAll();
+            scheduleHistoryCapture();
+        }
+
+        if (!silent) {
+            if (changed > 0) {
+                setStatus(changed === 1 ? "Text style applied" : `Text style applied: ${changed}`);
+            } else {
+                setStatus("Text style set for new text");
+            }
+        }
+
+        return changed > 0;
+    }
+
+    function syncTextStyleControlsFromSelection() {
+        const fontSelect = document.getElementById("composer-font-family");
+        const boldBtn = document.getElementById("composer-font-bold-btn");
+        const italicBtn = document.getElementById("composer-font-italic-btn");
+        if (!fontSelect && !boldBtn && !italicBtn) return;
+        if (!canvas) return;
+
+        const active = canvas.getActiveObject();
+        if (!active) {
+            updateTextStyleControlsState();
+            return;
+        }
+
+        let sample = null;
+        if (isTextObject(active)) {
+            sample = active;
+        } else if (active.type === "activeSelection" && typeof active.getObjects === "function") {
+            sample = active.getObjects().find((obj) => isTextObject(obj)) || null;
+        }
+
+        if (!sample) {
+            updateTextStyleControlsState();
+            return;
+        }
+
+        const nextFamily = String(sample.fontFamily || "").trim();
+        if (nextFamily) {
+            currentTextFontFamily = nextFamily;
+        }
+        currentTextFontWeight = normalizeFontWeight(sample.fontWeight);
+        currentTextFontStyle = normalizeFontStyle(sample.fontStyle);
+        updateTextStyleControlsState();
+    }
+
+    function bindTextStyleControls() {
+        const fontSelect = document.getElementById("composer-font-family");
+        const boldBtn = document.getElementById("composer-font-bold-btn");
+        const italicBtn = document.getElementById("composer-font-italic-btn");
+        if (!fontSelect || !boldBtn || !italicBtn) return;
+        if (fontSelect.dataset.bound === "1") return;
+
+        fontSelect.addEventListener("change", () => {
+            const value = String(fontSelect.value || "").trim();
+            if (!value) return;
+            currentTextFontFamily = value;
+            updateTextStyleControlsState();
+            applyTextStyleToSelection({ fontFamily: currentTextFontFamily }, false);
+        });
+
+        boldBtn.addEventListener("click", () => {
+            currentTextFontWeight = isBoldWeight(currentTextFontWeight) ? "400" : "700";
+            updateTextStyleControlsState();
+            applyTextStyleToSelection({ fontWeight: currentTextFontWeight }, false);
+        });
+
+        italicBtn.addEventListener("click", () => {
+            currentTextFontStyle = normalizeFontStyle(currentTextFontStyle) === "italic" ? "normal" : "italic";
+            updateTextStyleControlsState();
+            applyTextStyleToSelection({ fontStyle: currentTextFontStyle }, false);
+        });
+
+        fontSelect.dataset.bound = "1";
+        boldBtn.dataset.bound = "1";
+        italicBtn.dataset.bound = "1";
+        updateTextStyleControlsState();
     }
 
     function normalizeHexColor(colorValue) {
@@ -3118,6 +3290,7 @@
             bindDrawingControls();
             bindDrawingCursorPreview();
             bindObjectOpacityControls();
+            bindTextStyleControls();
             bindCanvasSizeControls();
             bindDeleteShortcut();
             bindClipboardPaste();
@@ -3202,6 +3375,8 @@
 
             canvas.on("selection:created", syncTextColorControlFromSelection);
             canvas.on("selection:updated", syncTextColorControlFromSelection);
+            canvas.on("selection:created", syncTextStyleControlsFromSelection);
+            canvas.on("selection:updated", syncTextStyleControlsFromSelection);
             canvas.on("selection:created", syncObjectOpacityControlFromSelection);
             canvas.on("selection:updated", syncObjectOpacityControlFromSelection);
             canvas.on("selection:created", () => {
@@ -3213,6 +3388,7 @@
                 if (drawingTool === "eraser" && canvas.isDrawingMode) applyDrawingBrush();
             });
             canvas.on("selection:cleared", () => {
+                syncTextStyleControlsFromSelection();
                 syncObjectOpacityControlFromSelection();
                 if (drawingTool === "eraser" && canvas.isDrawingMode && !eraserFallbackActive) {
                     disableDrawingMode(true);

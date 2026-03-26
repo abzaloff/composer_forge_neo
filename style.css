@@ -184,6 +184,44 @@
     padding: 0 12px;
 }
 
+.composer-text-style-controls {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    margin-right: 4px;
+}
+
+#forge-composer-root .composer-font-select {
+    height: 36px;
+    min-height: 36px;
+    min-width: 150px;
+    max-width: 220px;
+    border-radius: 8px;
+    border: 1px solid #555;
+    background: #1f2936;
+    color: #eee;
+    padding: 0 10px;
+    font-size: 13px;
+}
+
+#forge-composer-root .composer-font-toggle-btn {
+    width: 36px;
+    min-width: 36px;
+    padding: 0;
+    font-size: 16px;
+}
+
+#forge-composer-root .composer-font-toggle-btn em {
+    font-style: italic;
+}
+
+#forge-composer-root .composer-font-toggle-btn.is-active {
+    border-color: #ff8c00;
+    box-shadow: 0 0 0 1px rgba(255,140,0,0.22) inset;
+    color: #ffb457;
+    background: rgba(30, 20, 10, 0.9);
+}
+
 .composer-stage-actions-overlay .composer-color-only {
     width: 36px;
     min-width: 36px;

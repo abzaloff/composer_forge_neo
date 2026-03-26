@@ -1,5 +1,13 @@
 # Changelog
 
+## [stable] - 2026-03-26
+
+### Added
+
+- Scene clipboard copy via `Ctrl+C` / `Cmd+C`
+- Right-click copy on canvas (`Shift + Right Click` keeps native browser context menu)
+- Text style controls in second toolbar row (before `Remove BG`): font dropdown, bold toggle, italic toggle
+
 ## [stable] - 2026-03-24
 
 ### Added
