@@ -191,6 +191,26 @@
     margin-right: 4px;
 }
 
+#forge-composer-root .composer-canvas-bg-overlay {
+    position: absolute;
+    right: 12px;
+    bottom: 42px;
+    z-index: 4;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+#forge-composer-root .composer-canvas-bg-color {
+    width: 34px;
+    height: 30px;
+    border: 1px solid #666;
+    border-radius: 6px;
+    padding: 0;
+    background: transparent;
+    cursor: pointer;
+}
+
 #forge-composer-root .composer-font-select {
     height: 36px;
     min-height: 36px;

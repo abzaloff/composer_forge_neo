@@ -18,6 +18,7 @@
     let currentTextFontFamily = "Arial";
     let currentTextFontWeight = "400";
     let currentTextFontStyle = "normal";
+    let currentCanvasBackgroundColor = "#000000";
     let removeBgInFlight = false;
     let drawingTool = null;
     let drawColor = "#ff0000";
@@ -199,8 +200,10 @@
                 canvas.setViewportTransform(prevViewportTransform);
             }
             refreshBackgroundReference();
+            syncCanvasBackgroundControl();
             canvas.renderAll();
             syncTextColorControlFromSelection();
+            syncTextStyleControlsFromSelection();
             syncObjectOpacityControlFromSelection();
             historyRestoring = false;
             updateHistoryButtons();
@@ -1264,6 +1267,61 @@
             return `#${toHex(rgbMatch[1])}${toHex(rgbMatch[2])}${toHex(rgbMatch[3])}`;
         }
         return null;
+    }
+
+    function syncCanvasBackgroundControl() {
+        const colorInput = document.getElementById("composer-canvas-bg-color");
+        const fromCanvas = normalizeHexColor(canvas?.backgroundColor);
+        if (fromCanvas) {
+            currentCanvasBackgroundColor = fromCanvas;
+        }
+        if (colorInput) {
+            colorInput.value = currentCanvasBackgroundColor;
+        }
+    }
+
+    function setCanvasBackgroundColor(colorValue, silent = false) {
+        const normalized = normalizeHexColor(colorValue);
+        if (!normalized) return false;
+
+        currentCanvasBackgroundColor = normalized;
+        const colorInput = document.getElementById("composer-canvas-bg-color");
+        if (colorInput && colorInput.value !== normalized) {
+            colorInput.value = normalized;
+        }
+
+        if (!canvas) return false;
+
+        const previous = normalizeHexColor(canvas.backgroundColor) || "";
+        if (previous === normalized) return false;
+
+        if (typeof canvas.setBackgroundColor === "function") {
+            canvas.setBackgroundColor(normalized, () => {
+                canvas.requestRenderAll();
+            });
+        } else {
+            canvas.backgroundColor = normalized;
+            canvas.requestRenderAll();
+        }
+
+        scheduleHistoryCapture();
+        if (!silent) setStatus(`Canvas color: ${normalized}`);
+        return true;
+    }
+
+    function bindCanvasBackgroundControl() {
+        const colorInput = document.getElementById("composer-canvas-bg-color");
+        if (!colorInput || colorInput.dataset.bound === "1") return;
+
+        colorInput.addEventListener("input", () => {
+            setCanvasBackgroundColor(colorInput.value, true);
+        });
+        colorInput.addEventListener("change", () => {
+            setCanvasBackgroundColor(colorInput.value, false);
+        });
+
+        colorInput.dataset.bound = "1";
+        syncCanvasBackgroundControl();
     }
 
     function setTextColor(colorValue) {
@@ -3245,7 +3303,7 @@
             try {
                 canvas = new fabric.Canvas("forge-composer-canvas", {
                     preserveObjectStacking: true,
-                    backgroundColor: "#000000"
+                    backgroundColor: currentCanvasBackgroundColor
                 });
             } catch (err) {
                 console.error(err);
@@ -3287,6 +3345,7 @@
             bindCanvasDropZone();
             bindMiddleMouseCameraControls();
             bindStageActionsOverlay();
+            bindCanvasBackgroundControl();
             bindDrawingControls();
             bindDrawingCursorPreview();
             bindObjectOpacityControls();
