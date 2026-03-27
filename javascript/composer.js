@@ -1765,6 +1765,34 @@
         document.__composerDeleteBound = true;
     }
 
+    function bindOutsideCanvasDeselect() {
+        if (!document || document.__composerOutsideDeselectBound) return;
+
+        document.addEventListener("mousedown", (e) => {
+            if (!canvas) return;
+            if (e.button !== 0) return;
+
+            const root = document.getElementById("forge-composer-root");
+            if (!root || !isElementVisible(root)) return;
+
+            const active = canvas.getActiveObject();
+            if (!active) return;
+
+            const target = e.target;
+            const inUpper = !!(canvas.upperCanvasEl && target && canvas.upperCanvasEl.contains(target));
+            const inLower = !!(canvas.lowerCanvasEl && target && canvas.lowerCanvasEl.contains(target));
+            if (inUpper || inLower) return;
+
+            canvas.discardActiveObject();
+            canvas.requestRenderAll();
+            syncTextColorControlFromSelection();
+            syncTextStyleControlsFromSelection();
+            syncObjectOpacityControlFromSelection();
+        });
+
+        document.__composerOutsideDeselectBound = true;
+    }
+
     function getClipboardImageFiles(clipboardData) {
         if (!clipboardData) return [];
 
@@ -3352,6 +3380,7 @@
             bindTextStyleControls();
             bindCanvasSizeControls();
             bindDeleteShortcut();
+            bindOutsideCanvasDeselect();
             bindClipboardPaste();
             bindCanvasContextCopy();
             bindHistoryButtons();
