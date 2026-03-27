@@ -144,6 +144,9 @@ COMPOSER_HTML = """
 
     <div class="composer-stage-wrap">
         <canvas id="forge-composer-canvas"></canvas>
+        <div id="composer-layers-panel" class="composer-layers-panel" aria-label="Layers panel">
+            <div id="composer-layers-list" class="composer-layers-list"></div>
+        </div>
         <div id="composer-canvas-bg-overlay" class="composer-canvas-bg-overlay" aria-label="Canvas background color">
             <input id="composer-canvas-bg-color" class="composer-canvas-bg-color" type="color" value="#000000" title="Canvas background color">
         </div>

@@ -7,6 +7,8 @@
     const STAGE_MAX_HEIGHT = 1024;
     const STAGE_DEFAULT_HEIGHT = 640;
     const STAGE_STEP = 64;
+    const LAYERS_PANEL_RESERVE = 64;
+    const LAYERS_PANEL_GAP = 8;
     const MIN_SCENE_SIZE = 64;
     const MAX_SCENE_SIZE = 2048;
     const SCENE_STEP = 64;
@@ -41,6 +43,9 @@
     let historyRedoStack = [];
     let historyCaptureTimer = null;
     let historyRestoring = false;
+    let lockedLayerObject = null;
+    let pointerDragTargetLockActive = false;
+    let pointerDragTargetLockPrevSkipFind = false;
 
     function setStatus(text) {
         const el = document.getElementById("composer-status");
@@ -205,6 +210,7 @@
             syncTextColorControlFromSelection();
             syncTextStyleControlsFromSelection();
             syncObjectOpacityControlFromSelection();
+            syncLayersPanel();
             historyRestoring = false;
             updateHistoryButtons();
             if (successText) setStatus(successText);
@@ -283,6 +289,394 @@
         overlay.dataset.bound = "1";
     }
 
+    function clearLayerSelectionLock() {
+        if (!canvas) {
+            lockedLayerObject = null;
+            return;
+        }
+
+        canvas.getObjects().forEach((obj) => {
+            if (!obj) return;
+            if (typeof obj.__composerSavedSelectable !== "undefined") {
+                obj.selectable = obj.__composerSavedSelectable;
+                delete obj.__composerSavedSelectable;
+            }
+            if (typeof obj.__composerSavedEvented !== "undefined") {
+                obj.evented = obj.__composerSavedEvented;
+                delete obj.__composerSavedEvented;
+            }
+        });
+
+        lockedLayerObject = null;
+    }
+
+    function applyLayerSelectionLock(target) {
+        if (!canvas || !target) return;
+
+        lockedLayerObject = target;
+        canvas.getObjects().forEach((obj) => {
+            if (!obj) return;
+
+            if (typeof obj.__composerSavedSelectable === "undefined") {
+                obj.__composerSavedSelectable = obj.selectable;
+            }
+            if (typeof obj.__composerSavedEvented === "undefined") {
+                obj.__composerSavedEvented = obj.evented;
+            }
+
+            const isTarget = obj === target;
+            obj.selectable = isTarget;
+            obj.evented = isTarget;
+        });
+
+        target.selectable = true;
+        target.evented = true;
+    }
+
+    function ensureLockedLayerIsActive() {
+        if (!canvas || !lockedLayerObject) return;
+        const objects = canvas.getObjects();
+        if (!objects.includes(lockedLayerObject)) {
+            clearLayerSelectionLock();
+            return;
+        }
+
+        const active = canvas.getActiveObject();
+        if (active === lockedLayerObject) return;
+
+        // While lock is enabled, never allow implicit retargeting to upper layers.
+        canvas.setActiveObject(lockedLayerObject);
+        canvas.requestRenderAll();
+    }
+
+    function syncLayerLockFromCanvasSelection() {
+        if (!canvas) return;
+        if (drawingTool === "brush" || drawingTool === "eraser") return;
+
+        const active = canvas.getActiveObject();
+        if (!active) {
+            clearLayerSelectionLock();
+            return;
+        }
+
+        if (active.type === "activeSelection") {
+            clearLayerSelectionLock();
+            return;
+        }
+
+        if (lockedLayerObject !== active) {
+            applyLayerSelectionLock(active);
+        } else {
+            ensureLockedLayerIsActive();
+        }
+        syncLayersPanel();
+    }
+
+    function beginPointerDragTargetLock() {
+        if (!canvas || pointerDragTargetLockActive) return;
+        pointerDragTargetLockPrevSkipFind = !!canvas.skipTargetFind;
+        canvas.skipTargetFind = true;
+        pointerDragTargetLockActive = true;
+    }
+
+    function endPointerDragTargetLock() {
+        if (!canvas || !pointerDragTargetLockActive) return;
+        canvas.skipTargetFind = pointerDragTargetLockPrevSkipFind;
+        pointerDragTargetLockActive = false;
+    }
+
+    function getLayerDisplayName(obj) {
+        if (!obj) return "Layer";
+        if (obj.composerType === "background") return "BG";
+        if (isTextObject(obj)) return "Text";
+        if (obj.type === "path") return "Brush";
+        if (isShapeObject(obj)) return obj.name || "Shape";
+        if (obj.type === "image") return obj.name || "Image";
+        return obj.name || obj.type || "Layer";
+    }
+
+    function getShapeLayerKind(obj) {
+        if (!isShapeObject(obj)) return null;
+
+        const byName = String(obj.name || "").toLowerCase();
+        if (byName.includes("triangle")) return "triangle";
+        if (byName.includes("square") || byName.includes("rect")) return "rect";
+        if (byName.includes("circle")) return "circle";
+        if (byName.includes("pentagon")) return "pentagon";
+        if (byName.includes("hexagon")) return "hexagon";
+        if (byName.includes("octagon")) return "octagon";
+
+        if (obj.type === "rect") return "rect";
+        if (obj.type === "circle") return "circle";
+        if (obj.type === "polygon" && Array.isArray(obj.points)) {
+            const sides = obj.points.length;
+            if (sides === 3) return "triangle";
+            if (sides === 5) return "pentagon";
+            if (sides === 6) return "hexagon";
+            if (sides === 8) return "octagon";
+        }
+
+        return "shape";
+    }
+
+    function getShapeThumbSvg(shapeKind) {
+        const stroke = "%23f2f2f2";
+        if (shapeKind === "triangle") {
+            return `data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><polygon points='8,2.5 13,12.5 3,12.5' fill='none' stroke='${stroke}' stroke-width='1.4' stroke-linejoin='round'/></svg>`;
+        }
+        if (shapeKind === "rect") {
+            return `data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><rect x='3' y='3' width='10' height='10' fill='none' stroke='${stroke}' stroke-width='1.4' stroke-linejoin='round'/></svg>`;
+        }
+        if (shapeKind === "circle") {
+            return `data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><circle cx='8' cy='8' r='5' fill='none' stroke='${stroke}' stroke-width='1.4'/></svg>`;
+        }
+        if (shapeKind === "pentagon") {
+            return `data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><polygon points='8,2.4 13,6 11.2,12 4.8,12 3,6' fill='none' stroke='${stroke}' stroke-width='1.4' stroke-linejoin='round'/></svg>`;
+        }
+        if (shapeKind === "hexagon") {
+            return `data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><polygon points='4,3.5 12,3.5 14,8 12,12.5 4,12.5 2,8' fill='none' stroke='${stroke}' stroke-width='1.4' stroke-linejoin='round'/></svg>`;
+        }
+        if (shapeKind === "octagon") {
+            return `data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><polygon points='5,2.5 11,2.5 13.5,5 13.5,11 11,13.5 5,13.5 2.5,11 2.5,5' fill='none' stroke='${stroke}' stroke-width='1.4' stroke-linejoin='round'/></svg>`;
+        }
+        return null;
+    }
+
+    function getLayerThumbLabel(obj) {
+        if (!obj) return "L";
+        if (obj.composerType === "background") return "BG";
+        if (isTextObject(obj)) return "T";
+        if (obj.type === "path") return "BR";
+        if (isShapeObject(obj)) return "";
+        if (obj.type === "image") return "IMG";
+        return "L";
+    }
+
+    function getImageThumbUrl(obj) {
+        if (!obj || obj.type !== "image") return null;
+        const src = obj?._element?.currentSrc || obj?._element?.src || "";
+        if (typeof src !== "string" || !src) return null;
+        return src;
+    }
+
+    function getSelectedObjectsSet() {
+        const selected = new Set();
+        const active = canvas?.getActiveObject();
+        if (!active) return selected;
+
+        if (active.type === "activeSelection" && typeof active.getObjects === "function") {
+            active.getObjects().forEach((obj) => selected.add(obj));
+            return selected;
+        }
+
+        selected.add(active);
+        return selected;
+    }
+
+    function syncLayersPanel() {
+        const list = document.getElementById("composer-layers-list");
+        if (!list || !canvas) return;
+
+        const objects = canvas.getObjects();
+        if (lockedLayerObject && !objects.includes(lockedLayerObject)) {
+            clearLayerSelectionLock();
+        }
+        const selected = getSelectedObjectsSet();
+        list.innerHTML = "";
+
+        if (objects.length === 0) {
+            const empty = document.createElement("div");
+            empty.className = "composer-layer-empty";
+            empty.textContent = "No layers";
+            list.appendChild(empty);
+            return;
+        }
+
+        for (let idx = objects.length - 1; idx >= 0; idx -= 1) {
+            const obj = objects[idx];
+            const visualOrder = objects.length - idx;
+            const card = document.createElement("button");
+            card.type = "button";
+            card.className = "composer-layer-card";
+            card.dataset.layerIndex = String(idx);
+            card.draggable = true;
+            card.title = `${visualOrder}. ${getLayerDisplayName(obj)}`;
+            if (selected.has(obj)) {
+                card.classList.add("is-active");
+            }
+
+            const thumb = document.createElement("span");
+            thumb.className = "composer-layer-thumb";
+            const imgUrl = getImageThumbUrl(obj);
+            if (imgUrl) {
+                thumb.classList.add("has-image");
+                thumb.style.backgroundImage = `url("${imgUrl}")`;
+                thumb.textContent = ".";
+            } else {
+                const shapeKind = getShapeLayerKind(obj);
+                const shapeSvg = shapeKind ? getShapeThumbSvg(shapeKind) : null;
+                if (shapeSvg) {
+                    thumb.classList.add("has-image");
+                    thumb.style.backgroundImage = `url("${shapeSvg}")`;
+                    thumb.textContent = ".";
+                }
+                thumb.textContent = getLayerThumbLabel(obj);
+            }
+
+            const orderBadge = document.createElement("span");
+            orderBadge.className = "composer-layer-index";
+            orderBadge.textContent = String(visualOrder);
+
+            card.appendChild(thumb);
+            card.appendChild(orderBadge);
+            list.appendChild(card);
+        }
+    }
+
+    function reorderLayersFromPanel(sourceLayerIndex, targetLayerIndex, placeAfter = false) {
+        if (!canvas) return false;
+
+        const sourceIdx = Number(sourceLayerIndex);
+        const targetIdx = Number(targetLayerIndex);
+        if (!Number.isFinite(sourceIdx) || !Number.isFinite(targetIdx)) return false;
+        if (sourceIdx === targetIdx) return false;
+
+        const objects = canvas.getObjects();
+        const sourceObj = objects[sourceIdx];
+        const targetObj = objects[targetIdx];
+        if (!sourceObj || !targetObj) return false;
+
+        const topToBottom = objects.slice().reverse();
+        let sourcePos = topToBottom.indexOf(sourceObj);
+        let targetPos = topToBottom.indexOf(targetObj);
+        if (sourcePos < 0 || targetPos < 0) return false;
+
+        topToBottom.splice(sourcePos, 1);
+        if (sourcePos < targetPos) targetPos -= 1;
+        const insertPos = Math.max(0, Math.min(topToBottom.length, targetPos + (placeAfter ? 1 : 0)));
+        topToBottom.splice(insertPos, 0, sourceObj);
+
+        const bottomToTop = topToBottom.slice().reverse();
+        bottomToTop.forEach((obj, index) => {
+            canvas.moveTo(obj, index);
+            obj.setCoords();
+        });
+
+        applyLayerSelectionLock(sourceObj);
+        canvas.setActiveObject(sourceObj);
+        canvas.requestRenderAll();
+        syncTextColorControlFromSelection();
+        syncTextStyleControlsFromSelection();
+        syncObjectOpacityControlFromSelection();
+        syncLayersPanel();
+        scheduleHistoryCapture();
+        setStatus("Layer reordered");
+        return true;
+    }
+
+    function bindLayersPanel() {
+        const list = document.getElementById("composer-layers-list");
+        if (!list || list.dataset.bound === "1") return;
+        let draggedLayerIndex = null;
+
+        list.addEventListener("mousedown", (e) => {
+            e.stopPropagation();
+        });
+
+        list.addEventListener("dragstart", (e) => {
+            const card = e.target?.closest?.(".composer-layer-card");
+            if (!card) return;
+            draggedLayerIndex = card.dataset.layerIndex || null;
+            card.classList.add("is-dragging");
+            if (e.dataTransfer) {
+                e.dataTransfer.effectAllowed = "move";
+                e.dataTransfer.setData("text/plain", draggedLayerIndex || "");
+            }
+        });
+
+        list.addEventListener("dragover", (e) => {
+            e.preventDefault();
+            if (e.dataTransfer) {
+                e.dataTransfer.dropEffect = "move";
+            }
+        });
+
+        list.addEventListener("drop", (e) => {
+            const card = e.target?.closest?.(".composer-layer-card");
+            e.preventDefault();
+
+            const source = draggedLayerIndex
+                || (e.dataTransfer ? e.dataTransfer.getData("text/plain") : "");
+            if (!source) return;
+
+            if (card) {
+                const target = card.dataset.layerIndex || "";
+                const rect = card.getBoundingClientRect();
+                const placeAfter = e.clientY > (rect.top + rect.height / 2);
+                reorderLayersFromPanel(source, target, placeAfter);
+                return;
+            }
+
+            // Drop below all cards -> move to the very bottom.
+            const cards = [...list.querySelectorAll(".composer-layer-card")];
+            const lastCard = cards[cards.length - 1] || null;
+            if (!lastCard) return;
+            const target = lastCard.dataset.layerIndex || "";
+            reorderLayersFromPanel(source, target, true);
+        });
+
+        list.addEventListener("dragend", () => {
+            draggedLayerIndex = null;
+            list.querySelectorAll(".composer-layer-card.is-dragging").forEach((el) => {
+                el.classList.remove("is-dragging");
+            });
+        });
+
+        list.addEventListener("click", (e) => {
+            const card = e.target?.closest?.(".composer-layer-card");
+            if (!card || !canvas) return;
+
+            const idx = Number(card.dataset.layerIndex);
+            if (!Number.isFinite(idx)) return;
+
+            const objects = canvas.getObjects();
+            const target = objects[idx];
+            if (!target) return;
+
+            disableDrawingMode(true);
+            applyLayerSelectionLock(target);
+            canvas.setActiveObject(target);
+            canvas.requestRenderAll();
+            syncTextColorControlFromSelection();
+            syncTextStyleControlsFromSelection();
+            syncObjectOpacityControlFromSelection();
+            syncLayersPanel();
+        });
+
+        list.dataset.bound = "1";
+        syncLayersPanel();
+    }
+
+    function bindLayersPanelTracking() {
+        if (!canvas || canvas.__composerLayersPanelBound) return;
+
+        const sync = () => {
+            syncLayersPanel();
+        };
+
+        canvas.on("object:added", sync);
+        canvas.on("object:removed", sync);
+        canvas.on("object:modified", sync);
+        canvas.on("text:changed", sync);
+        canvas.on("selection:created", sync);
+        canvas.on("selection:updated", sync);
+        canvas.on("selection:cleared", sync);
+        canvas.on("path:created", sync);
+
+        canvas.__composerLayersPanelBound = true;
+        syncLayersPanel();
+    }
+
     function bindHistoryTracking() {
         if (!canvas || canvas.__composerHistoryBound) return;
 
@@ -336,6 +730,7 @@
             flushHistoryCaptureNow();
         });
         canvas.on("mouse:up", () => {
+            endPointerDragTargetLock();
             if (drawingTool === "eraser" && canvas.isDrawingMode && !eraserFallbackActive) {
                 flushHistoryCaptureNow();
             }
@@ -379,7 +774,8 @@
         const stageWrap = document.querySelector(".composer-stage-wrap");
         if (!canvasEl || !stageWrap || !canvas) return;
 
-        const rawWidth = stageWrap.clientWidth - 8;
+        const layersReserveWidth = getLayersPanelReserveWidth();
+        const rawWidth = stageWrap.clientWidth - 8 - layersReserveWidth;
         const rawHeight = stageWrap.clientHeight - 8;
 
         // Gradio tabs can initialize while hidden and report tiny sizes.
@@ -411,11 +807,42 @@
             container.style.width = `${displayWidth}px`;
             container.style.height = `${displayHeight}px`;
             container.style.margin = "0";
+            container.style.marginRight = `${layersReserveWidth}px`;
         }
 
         mountStageActionsOverlay();
+        positionLayersPanelNearCanvas();
         updateDrawCursorSize();
         canvas.renderAll();
+    }
+
+    function getLayersPanelReserveWidth() {
+        const panel = document.getElementById("composer-layers-panel");
+        if (!panel || !isElementVisible(panel)) return 0;
+        return LAYERS_PANEL_RESERVE;
+    }
+
+    function positionLayersPanelNearCanvas() {
+        const panel = document.getElementById("composer-layers-panel");
+        const stageWrap = document.querySelector(".composer-stage-wrap");
+        const canvasWrap = canvas?.wrapperEl;
+        if (!panel || !stageWrap || !canvasWrap) return;
+
+        const panelWidth = panel.offsetWidth || 78;
+        const leftByCanvas = Math.round(canvasWrap.offsetLeft + canvasWrap.offsetWidth + LAYERS_PANEL_GAP);
+        const maxLeft = Math.max(6, stageWrap.clientWidth - panelWidth - 6);
+        const left = Math.max(6, Math.min(maxLeft, leftByCanvas));
+        const top = Math.max(6, Math.round(canvasWrap.offsetTop));
+        const maxBottomForOverlays = stageWrap.clientHeight - 78;
+        const preferredHeight = Math.max(120, Math.round(canvasWrap.offsetHeight));
+        const availableHeight = Math.max(120, maxBottomForOverlays - top);
+        const height = Math.max(120, Math.min(preferredHeight, availableHeight));
+
+        panel.style.right = "auto";
+        panel.style.bottom = "auto";
+        panel.style.left = `${left}px`;
+        panel.style.top = `${top}px`;
+        panel.style.height = `${height}px`;
     }
 
     function getViewportMinScale() {
@@ -1501,6 +1928,7 @@
         active.setCoords();
         canvas.setActiveObject(active);
         canvas.requestRenderAll();
+        syncLayersPanel();
         scheduleHistoryCapture();
         setStatus(direction === "up" ? "Moved layer up" : "Moved layer down");
     }
@@ -1774,15 +2202,20 @@
 
             const root = document.getElementById("forge-composer-root");
             if (!root || !isElementVisible(root)) return;
+            const stageWrap = document.querySelector(".composer-stage-wrap");
 
             const active = canvas.getActiveObject();
             if (!active) return;
 
             const target = e.target;
+            // Keep selection while interacting with composer UI controls
+            // (sliders/buttons/toolbars); only stage-area clicks should deselect.
+            if (root.contains(target) && stageWrap && !stageWrap.contains(target)) return;
             const inUpper = !!(canvas.upperCanvasEl && target && canvas.upperCanvasEl.contains(target));
             const inLower = !!(canvas.lowerCanvasEl && target && canvas.lowerCanvasEl.contains(target));
             if (inUpper || inLower) return;
 
+            clearLayerSelectionLock();
             canvas.discardActiveObject();
             canvas.requestRenderAll();
             syncTextColorControlFromSelection();
@@ -3367,12 +3800,53 @@
 
                 scaleBackgroundByWheel(opt.e.deltaY || 0);
             });
+            canvas.on("mouse:down", (opt) => {
+                if (!lockedLayerObject) return;
+                if (middlePanActive) return;
+                if (opt?.e?.button !== 0) return;
+                if (opt?.target) {
+                    if (opt.target !== lockedLayerObject) {
+                        ensureLockedLayerIsActive();
+                        opt.e.preventDefault();
+                        opt.e.stopPropagation();
+                    }
+                    return;
+                }
+
+                // Empty click inside canvas should fully unlock layer targeting.
+                clearLayerSelectionLock();
+                syncLayersPanel();
+            });
+            canvas.on("mouse:down", (opt) => {
+                if (!canvas) return;
+                if (middlePanActive) return;
+                if (opt?.e?.button !== 0) return;
+                if (lockedLayerObject) return; // panel lock already handles targeting
+                if (drawingTool === "brush" || drawingTool === "eraser") return;
+
+                const active = canvas.getActiveObject();
+                const target = opt?.target;
+                if (!active || !target) return;
+                if (active !== target) return;
+                if (active.type === "activeSelection") return;
+
+                // If user starts dragging currently selected object from canvas,
+                // keep target locked even when cursor passes over upper layers.
+                beginPointerDragTargetLock();
+            });
+            canvas.on("selection:created", () => {
+                syncLayerLockFromCanvasSelection();
+            });
+            canvas.on("selection:updated", () => {
+                syncLayerLockFromCanvasSelection();
+            });
 
             const ok = bindUploadButtons();
             if (!ok) return;
             bindCanvasDropZone();
             bindMiddleMouseCameraControls();
             bindStageActionsOverlay();
+            bindLayersPanel();
             bindCanvasBackgroundControl();
             bindDrawingControls();
             bindDrawingCursorPreview();
@@ -3385,6 +3859,7 @@
             bindCanvasContextCopy();
             bindHistoryButtons();
             bindHistoryTracking();
+            bindLayersPanelTracking();
             resetHistoryToCurrentScene();
 
             const clearBtn = document.getElementById("composer-clear-btn");
@@ -3408,6 +3883,7 @@
 
             clearBtn?.addEventListener("click", () => {
                 disableDrawingMode(true);
+                clearLayerSelectionLock();
                 const all = canvas.getObjects().slice();
                 all.forEach(obj => canvas.remove(obj));
                 backgroundObject = null;

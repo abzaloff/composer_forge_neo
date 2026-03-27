@@ -123,7 +123,7 @@
 
 #forge-composer-root .composer-stage-height-overlay {
     position: absolute;
-    right: 12px;
+    right: 74px;
     bottom: 10px;
     z-index: 4;
     display: inline-flex;
@@ -193,7 +193,7 @@
 
 #forge-composer-root .composer-canvas-bg-overlay {
     position: absolute;
-    right: 12px;
+    right: 74px;
     bottom: 42px;
     z-index: 4;
     display: inline-flex;
@@ -209,6 +209,101 @@
     padding: 0;
     background: transparent;
     cursor: pointer;
+}
+
+#forge-composer-root .composer-layers-panel {
+    position: absolute;
+    right: 10px;
+    top: 10px;
+    width: 56px;
+    z-index: 4;
+    border: none;
+    border-radius: 0;
+    background: transparent;
+    backdrop-filter: none;
+    overflow: visible;
+}
+
+#forge-composer-root .composer-layers-list {
+    height: 100%;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    overflow-y: auto;
+    overflow-x: hidden;
+    scrollbar-width: thin;
+}
+
+#forge-composer-root .composer-layer-empty {
+    color: #99a8bc;
+    font-size: 11px;
+    text-align: center;
+    margin-top: 8px;
+}
+
+#forge-composer-root .composer-layer-card {
+    position: relative;
+    width: 48px;
+    height: 48px;
+    min-height: 48px;
+    border: 1px solid #4a5668;
+    border-radius: 8px;
+    background: #1f2936;
+    cursor: pointer;
+    padding: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+}
+
+#forge-composer-root .composer-layer-card.is-active {
+    border-color: #ff8c00;
+    box-shadow: 0 0 0 1px rgba(255,140,0,0.28) inset;
+}
+
+#forge-composer-root .composer-layer-card.is-dragging {
+    opacity: 0.6;
+}
+
+#forge-composer-root .composer-layer-thumb {
+    width: 40px;
+    height: 40px;
+    border-radius: 6px;
+    border: 1px solid rgba(255,255,255,0.1);
+    background: #2a3a4d;
+    color: #f2f2f2;
+    font-size: 12px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 700;
+    line-height: 1;
+    text-transform: uppercase;
+    overflow: hidden;
+}
+
+#forge-composer-root .composer-layer-thumb.has-image {
+    background-position: center;
+    background-size: cover;
+    background-repeat: no-repeat;
+    color: transparent;
+}
+
+#forge-composer-root .composer-layer-index {
+    position: absolute;
+    top: -5px;
+    right: -4px;
+    font-size: 9px;
+    line-height: 1;
+    color: #dfe7f5;
+    background: rgba(10, 14, 20, 0.7);
+    border-radius: 999px;
+    min-width: 16px;
+    padding: 2px 4px;
+    text-align: center;
 }
 
 #forge-composer-root .composer-font-select {
