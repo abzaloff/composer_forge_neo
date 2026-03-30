@@ -98,4 +98,4 @@ If the issue still persists, recreate the `venv`.
 
 ## Stable Status
 
-Verified as stable on two Forge installations by manual testing.
+Verified as stable across many Forge installations through community use and manual testing.
