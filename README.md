@@ -93,7 +93,7 @@ If the issue still persists, recreate the `venv`.
 
 ## Notes
 
-- `Remove BG` works for selected image objects.
+- `Remove BG` works for selected image objects. On first use, the `rembg` model is downloaded automatically, so please wait until the download completes.
 - Shape icons are unified (SVG) for consistent toolbar style.
 
 ## Stable Status
