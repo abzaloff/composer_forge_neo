@@ -99,3 +99,7 @@ If the issue still persists, recreate the `venv`.
 ## Stable Status
 
 Verified as stable across many Forge installations through community use and manual testing.
+
+## License
+
+See [LICENSE.md](./LICENSE.md).
