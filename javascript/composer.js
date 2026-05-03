@@ -119,11 +119,6 @@
         }
 
         overlay.style.display = "block";
-        const vpt = Array.isArray(canvas.viewportTransform) ? canvas.viewportTransform : [1, 0, 0, 1, 0, 0];
-        const scaleX = Number(vpt[0]) || 1;
-        const scaleY = Number(vpt[3]) || 1;
-        const tx = Number(vpt[4]) || 0;
-        const ty = Number(vpt[5]) || 0;
 
         const createLine = (axis, positionPx) => {
             const line = document.createElement("div");
@@ -137,10 +132,10 @@
         };
 
         for (let i = 1; i < gridDivisions; i += 1) {
-            const sceneX = (sceneWidth * i) / gridDivisions;
-            const sceneY = (sceneHeight * i) / gridDivisions;
-            createLine("x", sceneX * scaleX + tx);
-            createLine("y", sceneY * scaleY + ty);
+            const x = (displayWidth * i) / gridDivisions;
+            const y = (displayHeight * i) / gridDivisions;
+            createLine("x", x);
+            createLine("y", y);
         }
     }
 
