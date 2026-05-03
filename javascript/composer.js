@@ -10,12 +10,13 @@
     const LAYERS_PANEL_RESERVE = 64;
     const LAYERS_PANEL_GAP = 8;
     const MIN_SCENE_SIZE = 64;
-    const MAX_SCENE_SIZE = 2048;
+    const MAX_SCENE_SIZE = 3072;
     const SCENE_STEP = 64;
     let sceneWidth = 1024;
     let sceneHeight = 1024;
     let stageHeight = STAGE_DEFAULT_HEIGHT;
     let displayScale = 1;
+    let gridDivisions = 1;
     let currentTextColor = "#ffffff";
     let currentTextFontFamily = "Arial";
     let currentTextFontWeight = "400";
@@ -77,6 +78,102 @@
         if (overlay.parentElement !== secondRow) {
             secondRow.appendChild(overlay);
         }
+    }
+
+    function clampGridDivisions(value) {
+        const numeric = Number(value) || 1;
+        return Math.max(1, Math.min(4, Math.round(numeric)));
+    }
+
+    function syncGridControl() {
+        const buttons = document.querySelectorAll(".composer-grid-btn");
+        if (!buttons || buttons.length === 0) return;
+        buttons.forEach((btn) => {
+            const value = clampGridDivisions(btn.dataset.gridValue);
+            const isActive = value === gridDivisions;
+            btn.classList.toggle("is-active", isActive);
+            btn.setAttribute("aria-pressed", isActive ? "true" : "false");
+        });
+    }
+
+    function syncGridOverlay() {
+        const overlay = document.getElementById("composer-grid-overlay");
+        const stageWrap = document.querySelector(".composer-stage-wrap");
+        const canvasWrap = canvas?.wrapperEl;
+        if (!overlay || !stageWrap || !canvasWrap || !canvas) return;
+
+        const displayWidth = Math.max(1, Math.round(canvas.getWidth()));
+        const displayHeight = Math.max(1, Math.round(canvas.getHeight()));
+        overlay.style.left = `${Math.round(canvasWrap.offsetLeft)}px`;
+        overlay.style.top = `${Math.round(canvasWrap.offsetTop)}px`;
+        overlay.style.width = `${displayWidth}px`;
+        overlay.style.height = `${displayHeight}px`;
+
+        while (overlay.firstChild) {
+            overlay.removeChild(overlay.firstChild);
+        }
+
+        if (gridDivisions <= 1) {
+            overlay.style.display = "none";
+            return;
+        }
+
+        overlay.style.display = "block";
+        const vpt = Array.isArray(canvas.viewportTransform) ? canvas.viewportTransform : [1, 0, 0, 1, 0, 0];
+        const scaleX = Number(vpt[0]) || 1;
+        const scaleY = Number(vpt[3]) || 1;
+        const tx = Number(vpt[4]) || 0;
+        const ty = Number(vpt[5]) || 0;
+
+        const createLine = (axis, positionPx) => {
+            const line = document.createElement("div");
+            line.className = axis === "x" ? "composer-grid-line-v" : "composer-grid-line-h";
+            if (axis === "x") {
+                line.style.left = `${Math.round(positionPx)}px`;
+            } else {
+                line.style.top = `${Math.round(positionPx)}px`;
+            }
+            overlay.appendChild(line);
+        };
+
+        for (let i = 1; i < gridDivisions; i += 1) {
+            const sceneX = (sceneWidth * i) / gridDivisions;
+            const sceneY = (sceneHeight * i) / gridDivisions;
+            createLine("x", sceneX * scaleX + tx);
+            createLine("y", sceneY * scaleY + ty);
+        }
+    }
+
+    function setGridDivisions(value, silent = false) {
+        const next = clampGridDivisions(value);
+        if (next === gridDivisions) {
+            syncGridControl();
+            syncGridOverlay();
+            return;
+        }
+        gridDivisions = next;
+        syncGridControl();
+        syncGridOverlay();
+        if (!silent) {
+            if (gridDivisions === 1) {
+                setStatus("Grid disabled");
+            } else {
+                setStatus(`Grid ${gridDivisions}x${gridDivisions} enabled`);
+            }
+        }
+    }
+
+    function bindGridControls() {
+        const overlay = document.getElementById("composer-grid-controls-overlay");
+        const buttons = document.querySelectorAll(".composer-grid-btn");
+        if (!overlay || !buttons || buttons.length === 0 || overlay.dataset.bound === "1") return;
+        syncGridControl();
+        buttons.forEach((btn) => {
+            btn.addEventListener("click", () => {
+                setGridDivisions(btn.dataset.gridValue, false);
+            });
+        });
+        overlay.dataset.bound = "1";
     }
 
     function getHistorySnapshot() {
@@ -813,6 +910,7 @@
         mountStageActionsOverlay();
         positionLayersPanelNearCanvas();
         updateDrawCursorSize();
+        syncGridOverlay();
         canvas.renderAll();
     }
 
@@ -3853,6 +3951,7 @@
             bindObjectOpacityControls();
             bindTextStyleControls();
             bindCanvasSizeControls();
+            bindGridControls();
             bindDeleteShortcut();
             bindOutsideCanvasDeselect();
             bindClipboardPaste();
@@ -3861,6 +3960,7 @@
             bindHistoryTracking();
             bindLayersPanelTracking();
             resetHistoryToCurrentScene();
+            setGridDivisions(1, true);
 
             const clearBtn = document.getElementById("composer-clear-btn");
             const addTextBtn = document.getElementById("composer-add-text-btn");
@@ -3959,6 +4059,7 @@
                     setStatus("Select object to erase");
                 }
             });
+            canvas.on("after:render", syncGridOverlay);
 
             exportBtn?.addEventListener("click", () => {
                 const dataUrl = exportCanvasToDataUrl();

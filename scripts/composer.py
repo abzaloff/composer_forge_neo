@@ -63,13 +63,13 @@ COMPOSER_HTML = """
             <label class="composer-size-label" for="composer-width-slider">
                 W:
             </label>
-            <input id="composer-width-slider" class="composer-slider" type="range" min="64" max="2048" step="64" value="1024">
+            <input id="composer-width-slider" class="composer-slider" type="range" min="64" max="3072" step="64" value="1024">
             <span id="composer-width-value" class="composer-size-value">1024</span>
 
             <label class="composer-size-label" for="composer-height-slider">
                 H:
             </label>
-            <input id="composer-height-slider" class="composer-slider" type="range" min="64" max="2048" step="64" value="1024">
+            <input id="composer-height-slider" class="composer-slider" type="range" min="64" max="3072" step="64" value="1024">
             <span id="composer-height-value" class="composer-size-value">1024</span>
         </div>
 
@@ -150,6 +150,16 @@ COMPOSER_HTML = """
         <div id="composer-canvas-bg-overlay" class="composer-canvas-bg-overlay" aria-label="Canvas background color">
             <input id="composer-canvas-bg-color" class="composer-canvas-bg-color" type="color" value="#000000" title="Canvas background color">
         </div>
+        <div id="composer-grid-controls-overlay" class="composer-grid-controls-overlay" aria-label="Grid controls">
+            <span class="composer-grid-label">Grid</span>
+            <div class="composer-grid-buttons" role="group" aria-label="Grid divisions">
+                <button class="composer-grid-btn is-active" type="button" data-grid-value="1">1</button>
+                <button class="composer-grid-btn" type="button" data-grid-value="2">2</button>
+                <button class="composer-grid-btn" type="button" data-grid-value="3">3</button>
+                <button class="composer-grid-btn" type="button" data-grid-value="4">4</button>
+            </div>
+        </div>
+        <div id="composer-grid-overlay" class="composer-grid-overlay" aria-hidden="true"></div>
     </div>
 
     <div class="composer-footer">
