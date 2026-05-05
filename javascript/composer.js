@@ -615,12 +615,16 @@
                 thumb.textContent = getLayerThumbLabel(obj);
             }
 
-            const orderBadge = document.createElement("span");
-            orderBadge.className = "composer-layer-index";
-            orderBadge.textContent = String(visualOrder);
+            const deleteBtn = document.createElement("span");
+            deleteBtn.className = "composer-layer-delete";
+            deleteBtn.dataset.layerDelete = "1";
+            deleteBtn.title = "Delete layer";
+            deleteBtn.setAttribute("role", "button");
+            deleteBtn.setAttribute("aria-label", "Delete layer");
+            deleteBtn.textContent = "\u00d7";
 
             card.appendChild(thumb);
-            card.appendChild(orderBadge);
+            card.appendChild(deleteBtn);
             list.appendChild(card);
         }
     }
@@ -725,6 +729,24 @@
         });
 
         list.addEventListener("click", (e) => {
+            const deleteBtn = e.target?.closest?.(".composer-layer-delete");
+            if (deleteBtn && canvas) {
+                e.preventDefault();
+                e.stopPropagation();
+                const card = deleteBtn.closest(".composer-layer-card");
+                const idx = Number(card?.dataset.layerIndex);
+                if (!Number.isFinite(idx)) return;
+                const objects = canvas.getObjects();
+                const target = objects[idx];
+                if (!target) return;
+                disableDrawingMode(true);
+                applyLayerSelectionLock(target);
+                canvas.setActiveObject(target);
+                removeActiveObject();
+                scheduleHistoryCapture();
+                return;
+            }
+
             const card = e.target?.closest?.(".composer-layer-card");
             if (!card || !canvas) return;
 

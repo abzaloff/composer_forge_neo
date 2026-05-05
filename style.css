@@ -321,9 +321,9 @@
 
 #forge-composer-root .composer-layer-card {
     position: relative;
-    width: 48px;
-    height: 48px;
-    min-height: 48px;
+    width: 52px;
+    height: 52px;
+    min-height: 52px;
     border: 1px solid #4a5668;
     border-radius: 8px;
     background: #1f2936;
@@ -345,8 +345,8 @@
 }
 
 #forge-composer-root .composer-layer-thumb {
-    width: 40px;
-    height: 40px;
+    width: 44px;
+    height: 44px;
     border-radius: 6px;
     border: 1px solid rgba(255,255,255,0.1);
     background: #2a3a4d;
@@ -368,18 +368,35 @@
     color: transparent;
 }
 
-#forge-composer-root .composer-layer-index {
+#forge-composer-root .composer-layer-delete {
     position: absolute;
-    top: -5px;
-    right: -4px;
-    font-size: 9px;
-    line-height: 1;
-    color: #dfe7f5;
-    background: rgba(10, 14, 20, 0.7);
+    top: 2px;
+    right: 2px;
+    width: 18px;
+    min-width: 18px;
+    height: 18px;
+    min-height: 18px;
+    padding: 0;
     border-radius: 999px;
-    min-width: 16px;
-    padding: 2px 4px;
-    text-align: center;
+    border: 1px solid rgba(255,255,255,0.35);
+    background: rgba(10, 14, 20, 0.9);
+    color: #ffffff;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 14px;
+    font-weight: 700;
+    line-height: 1;
+    cursor: pointer;
+}
+
+#forge-composer-root .composer-layer-delete:hover {
+    border-color: rgba(255,140,0,0.75);
+    color: #ffb458;
+}
+
+#forge-composer-root .composer-layer-delete:active {
+    transform: translateY(1px);
 }
 
 #forge-composer-root .composer-font-select {
