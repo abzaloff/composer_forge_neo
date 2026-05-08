@@ -24,6 +24,7 @@ Composer extension for Forge/Neo that helps build scene layouts before Img2Img/I
 - Layer ordering (`up` / `down`)
 - Flip selected objects (horizontal / vertical)
 - Export scene to PNG
+- Export selected layer(s) to transparent PNG (`Export Layer`)
 - Copy scene to clipboard as PNG (`Ctrl+C` / `Cmd+C` or right-click on canvas)
 - Send scene directly to Img2Img, Inpaint, ControlNet T2I, or ControlNet I2I
 - Adjustable canvas size
@@ -94,6 +95,7 @@ If the issue still persists, recreate the `venv`.
 ## Notes
 
 - `Remove BG` works for selected image objects. On first use, the `rembg` model is downloaded automatically, so please wait until the download completes.
+- `Export` saves the whole canvas. `Export Layer` saves the selected object or multi-selection as a trimmed transparent PNG.
 - Shape icons are unified (SVG) for consistent toolbar style.
 
 ## Stable Status

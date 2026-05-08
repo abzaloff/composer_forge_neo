@@ -58,6 +58,7 @@ COMPOSER_HTML = """
         </button>
         <button id="composer-clear-btn" class="composer-btn" type="button">Clear</button>
         <button id="composer-export-btn" class="composer-btn" type="button">Export</button>
+        <button id="composer-export-layer-btn" class="composer-btn" type="button" title="Export selected layer as transparent PNG">Export Layer</button>
 
         <div class="composer-size-controls">
             <label class="composer-size-label" for="composer-width-slider">

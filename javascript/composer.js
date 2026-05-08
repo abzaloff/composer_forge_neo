@@ -3330,6 +3330,128 @@
         }
     }
 
+    function sanitizeDownloadName(value, fallback) {
+        const base = String(value || fallback || "composer_layer")
+            .trim()
+            .replace(/[\\/:*?"<>|]+/g, "_")
+            .replace(/\s+/g, "_")
+            .replace(/^_+|_+$/g, "");
+        return base || fallback || "composer_layer";
+    }
+
+    function trimTransparentDataUrl(dataUrl) {
+        return new Promise((resolve) => {
+            const img = new Image();
+            img.onload = () => {
+                const width = img.naturalWidth || img.width;
+                const height = img.naturalHeight || img.height;
+                if (!width || !height) {
+                    resolve(dataUrl);
+                    return;
+                }
+
+                const scratch = document.createElement("canvas");
+                scratch.width = width;
+                scratch.height = height;
+                const ctx = scratch.getContext("2d");
+                if (!ctx) {
+                    resolve(dataUrl);
+                    return;
+                }
+
+                ctx.clearRect(0, 0, width, height);
+                ctx.drawImage(img, 0, 0);
+
+                let pixels;
+                try {
+                    pixels = ctx.getImageData(0, 0, width, height).data;
+                } catch (err) {
+                    console.warn("[Composer] transparent trim failed", err);
+                    resolve(dataUrl);
+                    return;
+                }
+
+                let minX = width;
+                let minY = height;
+                let maxX = -1;
+                let maxY = -1;
+
+                for (let y = 0; y < height; y += 1) {
+                    for (let x = 0; x < width; x += 1) {
+                        const alpha = pixels[((y * width + x) * 4) + 3];
+                        if (alpha === 0) continue;
+                        if (x < minX) minX = x;
+                        if (y < minY) minY = y;
+                        if (x > maxX) maxX = x;
+                        if (y > maxY) maxY = y;
+                    }
+                }
+
+                if (maxX < minX || maxY < minY) {
+                    resolve(dataUrl);
+                    return;
+                }
+
+                const cropWidth = maxX - minX + 1;
+                const cropHeight = maxY - minY + 1;
+                if (cropWidth === width && cropHeight === height) {
+                    resolve(dataUrl);
+                    return;
+                }
+
+                const cropped = document.createElement("canvas");
+                cropped.width = cropWidth;
+                cropped.height = cropHeight;
+                const croppedCtx = cropped.getContext("2d");
+                if (!croppedCtx) {
+                    resolve(dataUrl);
+                    return;
+                }
+
+                croppedCtx.clearRect(0, 0, cropWidth, cropHeight);
+                croppedCtx.drawImage(scratch, minX, minY, cropWidth, cropHeight, 0, 0, cropWidth, cropHeight);
+                resolve(cropped.toDataURL("image/png"));
+            };
+            img.onerror = () => resolve(dataUrl);
+            img.src = dataUrl;
+        });
+    }
+
+    async function exportActiveLayerToDataUrl() {
+        if (!canvas) {
+            setStatus("Canvas not ready for export");
+            return null;
+        }
+
+        const active = canvas.getActiveObject();
+        if (!active) {
+            setStatus("Select a layer first");
+            return null;
+        }
+
+        if (typeof active.toDataURL !== "function") {
+            setStatus("Selected layer cannot be exported");
+            return null;
+        }
+
+        try {
+            const dataUrl = active.toDataURL({
+                format: "png",
+                multiplier: 1,
+                enableRetinaScaling: false
+            });
+            if (!dataUrl) {
+                setStatus("Layer export failed");
+                return null;
+            }
+            return await trimTransparentDataUrl(dataUrl);
+        } catch (err) {
+            console.error(err);
+            setStatus("Layer export failed");
+            return null;
+        }
+    }
+
     function downloadDataUrl(dataUrl, filename) {
         const a = document.createElement("a");
         a.href = dataUrl;
@@ -3993,6 +4115,7 @@
             const flipXBtn = document.getElementById("composer-flip-x-btn");
             const flipYBtn = document.getElementById("composer-flip-y-btn");
             const exportBtn = document.getElementById("composer-export-btn");
+            const exportLayerBtn = document.getElementById("composer-export-layer-btn");
             const sendImg2ImgBtn = document.getElementById("composer-send-img2img-btn");
             const sendInpaintBtn = document.getElementById("composer-send-inpaint-btn");
             const sendControlNetT2IBtn = document.getElementById("composer-send-controlnet-t2i-btn");
@@ -4083,6 +4206,19 @@
                 if (!dataUrl) return;
                 downloadDataUrl(dataUrl, "composer_scene.png");
                 setStatus("PNG exported");
+            });
+
+            exportLayerBtn?.addEventListener("click", async () => {
+                const active = canvas.getActiveObject();
+                const dataUrl = await exportActiveLayerToDataUrl();
+                if (!dataUrl) return;
+
+                const baseName = sanitizeDownloadName(
+                    active?.type === "activeSelection" ? "composer_layers" : active?.name,
+                    "composer_layer"
+                );
+                downloadDataUrl(dataUrl, `${baseName}.png`);
+                setStatus(active?.type === "activeSelection" ? "Layers PNG exported" : "Layer PNG exported");
             });
 
             sendImg2ImgBtn?.addEventListener("click", () => sendToForgeTarget("img2img"));
