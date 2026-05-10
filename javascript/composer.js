@@ -3329,12 +3329,10 @@
 
     function placeComposerGalleryButton(tabName) {
         const button = document.getElementById(`${tabName}_send_to_composer`);
-        const deleteButton = document.getElementById(`${tabName}_sdelb_delete_button`);
         const extrasButton = document.getElementById(`${tabName}_send_to_extras`);
-        const anchor = deleteButton || extrasButton;
-        if (!button || !anchor || !anchor.parentElement) return;
-        if (anchor.nextElementSibling !== button) {
-            anchor.after(button);
+        if (!button || !extrasButton || !extrasButton.parentElement) return;
+        if (extrasButton.nextElementSibling !== button) {
+            extrasButton.after(button);
         }
     }
 
