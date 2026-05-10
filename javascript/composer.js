@@ -47,6 +47,7 @@
     let lockedLayerObject = null;
     let pointerDragTargetLockActive = false;
     let pointerDragTargetLockPrevSkipFind = false;
+    let pendingExternalImages = [];
 
     function setStatus(text) {
         const el = document.getElementById("composer-status");
@@ -3229,6 +3230,119 @@
         });
     }
 
+    function addExternalImageToCanvas(dataUrl, name = "Generated image") {
+        if (!dataUrl || typeof dataUrl !== "string") {
+            return false;
+        }
+
+        if (!canvas || !window.fabric) {
+            pendingExternalImages.push({ dataUrl, name });
+            initComposer();
+            return true;
+        }
+
+        disableDrawingMode(true);
+        addImageToCanvas(dataUrl, false, name);
+        return true;
+    }
+
+    function flushPendingExternalImages() {
+        if (!canvas || !window.fabric || pendingExternalImages.length === 0) return;
+        const images = pendingExternalImages.splice(0);
+        images.forEach(({ dataUrl, name }) => addExternalImageToCanvas(dataUrl, name));
+    }
+
+    function imageUrlToDataUrl(url) {
+        if (!url) return Promise.reject(new Error("Image URL is empty"));
+        if (url.startsWith("data:image")) return Promise.resolve(url);
+
+        return fetch(url)
+            .then((response) => {
+                if (!response.ok) {
+                    throw new Error(`Image fetch failed: ${response.status}`);
+                }
+                return response.blob();
+            })
+            .then((blob) => new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = () => resolve(reader.result);
+                reader.onerror = () => reject(new Error("Image read failed"));
+                reader.readAsDataURL(blob);
+            }));
+    }
+
+    function getGalleryImageCandidates(tabName) {
+        const gallery = document.getElementById(`${tabName}_gallery`);
+        if (!gallery) return [];
+
+        const selectors = [
+            ".selected img",
+            "[aria-selected='true'] img",
+            ".thumbnail-item.selected img",
+            ".thumbnail-item[aria-selected='true'] img",
+            "button[aria-selected='true'] img",
+            "img"
+        ];
+
+        const seen = new Set();
+        const images = [];
+        selectors.forEach((selector) => {
+            gallery.querySelectorAll(selector).forEach((img) => {
+                const src = img.currentSrc || img.src || "";
+                if (!src || seen.has(src)) return;
+                seen.add(src);
+                images.push(img);
+            });
+        });
+        return images;
+    }
+
+    async function sendSelectedGalleryImageToComposer(tabName) {
+        try {
+            const images = getGalleryImageCandidates(tabName);
+            const img = images[0] || null;
+            const src = img?.currentSrc || img?.src || "";
+            if (!src) {
+                console.warn("[Composer] Gallery image not found");
+                return [`<b>No ${tabName} image found</b>`];
+            }
+
+            const dataUrl = await imageUrlToDataUrl(src);
+            const name = `${tabName}_generated.png`;
+            const composerTab = findTabButton(/\bcomposer\b/i);
+            if (composerTab) {
+                composerTab.click();
+                await new Promise((r) => setTimeout(r, 250));
+            }
+
+            const ok = window.forgeComposerNeo?.addImageFromDataUrl?.(dataUrl, name);
+            if (!ok) {
+                console.warn("[Composer] Composer bridge is not ready");
+                return ["<b>Composer is not ready</b>"];
+            }
+            return [`<b>Sent to Composer</b>`];
+        } catch (err) {
+            console.error(err);
+            return [`<b>Send to Composer failed: ${err?.message || err}</b>`];
+        }
+    }
+
+    function placeComposerGalleryButton(tabName) {
+        const button = document.getElementById(`${tabName}_send_to_composer`);
+        const deleteButton = document.getElementById(`${tabName}_sdelb_delete_button`);
+        const extrasButton = document.getElementById(`${tabName}_send_to_extras`);
+        const anchor = deleteButton || extrasButton;
+        if (!button || !anchor || !anchor.parentElement) return;
+        if (anchor.nextElementSibling !== button) {
+            anchor.after(button);
+        }
+    }
+
+    function placeComposerGalleryButtons() {
+        placeComposerGalleryButton("txt2img");
+        placeComposerGalleryButton("img2img");
+    }
+
     function exportCanvasToDataUrl() {
         if (!canvas) {
             setStatus("Canvas not ready for export");
@@ -4100,6 +4214,7 @@
             bindLayersPanelTracking();
             resetHistoryToCurrentScene();
             setGridDivisions(1, true);
+            flushPendingExternalImages();
 
             const clearBtn = document.getElementById("composer-clear-btn");
             const addTextBtn = document.getElementById("composer-add-text-btn");
@@ -4233,12 +4348,20 @@
         });
     }
 
+    window.forgeComposerNeo = Object.assign(window.forgeComposerNeo || {}, {
+        addImageFromDataUrl: addExternalImageToCanvas
+    });
+    window.txt2img_composer_send_selected_to_composer = () => sendSelectedGalleryImageToComposer("txt2img");
+    window.img2img_composer_send_selected_to_composer = () => sendSelectedGalleryImageToComposer("img2img");
+    placeComposerGalleryButtons();
+
     function bootstrapComposer() {
         // Gradio can render tabs after script load. We retry until canvas exists.
         initComposer();
     }
 
     const observer = new MutationObserver(() => {
+        placeComposerGalleryButtons();
         initComposer();
     });
 

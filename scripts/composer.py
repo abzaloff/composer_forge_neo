@@ -5,10 +5,13 @@ import gradio as gr
 from fastapi import Request
 from fastapi.responses import JSONResponse
 from modules import script_callbacks
+from modules.ui_components import ToolButton
 
 
 _REMBG_SESSION = None
 _REMBG_READY = False
+_send_to_composer_tab = ""
+_send_to_composer_info = None
 
 
 COMPOSER_HTML = """
@@ -196,6 +199,49 @@ def on_ui_tabs():
     return [(composer_block, "Composer", "composer_tab")]
 
 
+def _keep_send_to_composer_info(info):
+    return info
+
+
+def on_after_component(component, **kwargs):
+    global _send_to_composer_tab, _send_to_composer_info
+
+    element = kwargs.get("elem_id")
+    if element in ["txt2img_gallery", "img2img_gallery"]:
+        _send_to_composer_tab = element.split("_", 1)[0]
+        with gr.Column():
+            _send_to_composer_info = gr.HTML(
+                value="",
+                elem_id=f"{_send_to_composer_tab}_composer_send_info",
+                visible=False,
+            )
+        return
+
+    send_extras_name_old = "extras_tab"
+    send_extras_name_new = f"{_send_to_composer_tab}_send_to_extras"
+    if element not in (send_extras_name_old, send_extras_name_new) or not _send_to_composer_tab:
+        return
+
+    tab = _send_to_composer_tab
+    if element == send_extras_name_old:
+        send_button = gr.Button(value="▭", elem_id=f"{tab}_send_to_composer")
+    else:
+        send_button = ToolButton(
+            "▭",
+            elem_id=f"{tab}_send_to_composer",
+            elem_classes=["composer-send-gallery-button"],
+            tooltip="Send to Composer",
+        )
+
+    send_button.click(
+        fn=_keep_send_to_composer_info,
+        inputs=[_send_to_composer_info],
+        outputs=[_send_to_composer_info],
+        _js=f"{tab}_composer_send_selected_to_composer",
+    )
+    _send_to_composer_tab = ""
+
+
 def _parse_data_url(payload: str) -> bytes:
     if not payload or not isinstance(payload, str):
         raise ValueError("Empty image payload")
@@ -247,3 +293,4 @@ def on_app_started(_, app):
 
 script_callbacks.on_ui_tabs(on_ui_tabs)
 script_callbacks.on_app_started(on_app_started)
+script_callbacks.on_after_component(on_after_component)
