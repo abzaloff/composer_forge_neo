@@ -826,10 +826,87 @@
         if (!silent) setStatus("Warp mode off");
     }
 
-    function convertImageToWarpImage(obj) {
+    function insertWarpReplacement(original, replacement) {
+        if (!canvas || !original || !replacement) return null;
+        const objects = canvas.getObjects();
+        const index = objects.indexOf(original);
+
+        canvas.remove(original);
+        if (typeof canvas.insertAt === "function" && index >= 0) {
+            canvas.insertAt(replacement, index);
+        } else {
+            canvas.add(replacement);
+            if (index >= 0) canvas.moveTo(replacement, index);
+        }
+
+        if (original === backgroundObject) {
+            backgroundObject = replacement;
+        }
+
+        replacement.setCoords();
+        canvas.setActiveObject(replacement);
+        return replacement;
+    }
+
+    function rasterizeObjectForWarp(obj) {
+        if (!canvas || !window.fabric?.WarpImage || !obj) return null;
+        if (obj.type === "activeSelection") return null;
+        if (obj.type === "image" || obj.type === "warpImage") return null;
+        if (typeof obj.toCanvasElement !== "function") return null;
+
+        if (isTextObject(obj) && obj.isEditing && typeof obj.exitEditing === "function") {
+            obj.exitEditing();
+        }
+
+        let rendered = null;
+        try {
+            rendered = obj.toCanvasElement({
+                multiplier: 1,
+                withoutTransform: true
+            });
+        } catch (err) {
+            console.warn("[Composer] warp rasterize failed", err);
+            return null;
+        }
+        if (!rendered || !rendered.width || !rendered.height) return null;
+
+        const replacement = new window.fabric.WarpImage(rendered, {
+            left: obj.left,
+            top: obj.top,
+            originX: obj.originX,
+            originY: obj.originY,
+            scaleX: obj.scaleX,
+            scaleY: obj.scaleY,
+            angle: obj.angle,
+            flipX: obj.flipX,
+            flipY: obj.flipY,
+            skewX: obj.skewX,
+            skewY: obj.skewY,
+            opacity: obj.opacity,
+            selectable: obj.selectable,
+            evented: obj.evented,
+            hasControls: obj.hasControls,
+            hasBorders: obj.hasBorders,
+            lockMovementX: obj.lockMovementX,
+            lockMovementY: obj.lockMovementY,
+            lockRotation: obj.lockRotation,
+            lockScalingX: obj.lockScalingX,
+            lockScalingY: obj.lockScalingY,
+            name: obj.name || getLayerDisplayName(obj),
+            composerType: "object",
+            cornerStyle: "circle",
+            transparentCorners: false,
+            padding: 4,
+            objectCaching: false
+        });
+        replacement.warpCorners = defaultWarpCorners(replacement.width, replacement.height);
+        return insertWarpReplacement(obj, replacement);
+    }
+
+    function convertObjectToWarpImage(obj) {
         if (!canvas || !window.fabric?.WarpImage || !obj) return null;
         if (obj.type === "warpImage") return obj;
-        if (obj.type !== "image") return null;
+        if (obj.type !== "image") return rasterizeObjectForWarp(obj);
 
         const element = obj._element;
         if (!element) return null;
@@ -839,24 +916,7 @@
             ? cloneWarpCorners(obj.warpCorners)
             : defaultWarpCorners(obj.width, obj.height);
         const replacement = new window.fabric.WarpImage(element, props);
-        const objects = canvas.getObjects();
-        const index = objects.indexOf(obj);
-
-        canvas.remove(obj);
-        if (typeof canvas.insertAt === "function" && index >= 0) {
-            canvas.insertAt(replacement, index);
-        } else {
-            canvas.add(replacement);
-            if (index >= 0) canvas.moveTo(replacement, index);
-        }
-
-        if (obj === backgroundObject) {
-            backgroundObject = replacement;
-        }
-
-        replacement.setCoords();
-        canvas.setActiveObject(replacement);
-        return replacement;
+        return insertWarpReplacement(obj, replacement);
     }
 
     function toggleWarpModeForActiveObject() {
@@ -867,7 +927,7 @@
 
         const active = canvas.getActiveObject();
         if (!active || active.type === "activeSelection") {
-            setStatus("Select one image to warp");
+            setStatus("Select one object to warp");
             return;
         }
 
@@ -880,9 +940,9 @@
         disableDrawingMode(true);
         disableWarpEdit(true);
 
-        const target = convertImageToWarpImage(active);
+        const target = convertObjectToWarpImage(active);
         if (!target) {
-            setStatus("Warp works only for image layers");
+            setStatus("Warp works for images, text, and shape layers");
             return;
         }
 
