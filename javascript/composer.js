@@ -48,6 +48,9 @@
     let pointerDragTargetLockActive = false;
     let pointerDragTargetLockPrevSkipFind = false;
     let pendingExternalImages = [];
+    let warpEditObject = null;
+    let warpDragCorner = null;
+    const WARP_CORNER_KEYS = ["tl", "tr", "br", "bl"];
 
     function setStatus(text) {
         const el = document.getElementById("composer-status");
@@ -172,9 +175,730 @@
         overlay.dataset.bound = "1";
     }
 
+    function cloneWarpCorners(corners) {
+        const copy = {};
+        WARP_CORNER_KEYS.forEach((key) => {
+            const point = corners?.[key] || { x: 0, y: 0 };
+            copy[key] = {
+                x: Number(point.x) || 0,
+                y: Number(point.y) || 0
+            };
+        });
+        return copy;
+    }
+
+    function defaultWarpCorners(width, height) {
+        const hw = (Number(width) || 0) / 2;
+        const hh = (Number(height) || 0) / 2;
+        return {
+            tl: { x: -hw, y: -hh },
+            tr: { x: hw, y: -hh },
+            br: { x: hw, y: hh },
+            bl: { x: -hw, y: hh }
+        };
+    }
+
+    function normalizeWarpCorners(corners, width, height) {
+        const fallback = defaultWarpCorners(width, height);
+        const normalized = {};
+        WARP_CORNER_KEYS.forEach((key) => {
+            const point = corners?.[key] || fallback[key];
+            normalized[key] = {
+                x: Number.isFinite(Number(point.x)) ? Number(point.x) : fallback[key].x,
+                y: Number.isFinite(Number(point.y)) ? Number(point.y) : fallback[key].y
+            };
+        });
+        return normalized;
+    }
+
+    function getWarpSignedArea(corners) {
+        const pts = WARP_CORNER_KEYS.map((key) => corners[key]);
+        let area = 0;
+        for (let i = 0; i < pts.length; i += 1) {
+            const a = pts[i];
+            const b = pts[(i + 1) % pts.length];
+            area += a.x * b.y - b.x * a.y;
+        }
+        return area / 2;
+    }
+
+    function crossPoints(a, b, c) {
+        return (b.x - a.x) * (c.y - b.y) - (b.y - a.y) * (c.x - b.x);
+    }
+
+    function isValidWarpCorners(corners, expectedOrientation) {
+        const pts = WARP_CORNER_KEYS.map((key) => corners[key]);
+        const area = getWarpSignedArea(corners);
+        const orientation = Math.sign(area);
+        const requiredOrientation = expectedOrientation || orientation;
+        if (!orientation || orientation !== requiredOrientation) return false;
+        if (Math.abs(area) < 16) return false;
+
+        for (let i = 0; i < pts.length; i += 1) {
+            const prev = pts[(i + pts.length - 1) % pts.length];
+            const cur = pts[i];
+            const next = pts[(i + 1) % pts.length];
+            const cross = crossPoints(prev, cur, next);
+            if (Math.sign(cross) !== requiredOrientation || Math.abs(cross) < 4) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    function interpolateWarpPoint(corners, u, v) {
+        const topX = corners.tl.x + (corners.tr.x - corners.tl.x) * u;
+        const topY = corners.tl.y + (corners.tr.y - corners.tl.y) * u;
+        const bottomX = corners.bl.x + (corners.br.x - corners.bl.x) * u;
+        const bottomY = corners.bl.y + (corners.br.y - corners.bl.y) * u;
+        return {
+            x: topX + (bottomX - topX) * v,
+            y: topY + (bottomY - topY) * v
+        };
+    }
+
+    function applyTriangleImageTransform(ctx, dst0, dst1, dst2, src0, src1, src2, imgW, imgH) {
+        const sx0 = src0.u * imgW;
+        const sy0 = src0.v * imgH;
+        const sx1 = src1.u * imgW;
+        const sy1 = src1.v * imgH;
+        const sx2 = src2.u * imgW;
+        const sy2 = src2.v * imgH;
+        const den = sx0 * (sy1 - sy2) + sx1 * (sy2 - sy0) + sx2 * (sy0 - sy1);
+        if (Math.abs(den) < 0.00001) return false;
+
+        const a = (dst0.x * (sy1 - sy2) + dst1.x * (sy2 - sy0) + dst2.x * (sy0 - sy1)) / den;
+        const b = (dst0.y * (sy1 - sy2) + dst1.y * (sy2 - sy0) + dst2.y * (sy0 - sy1)) / den;
+        const c = (dst0.x * (sx2 - sx1) + dst1.x * (sx0 - sx2) + dst2.x * (sx1 - sx0)) / den;
+        const d = (dst0.y * (sx2 - sx1) + dst1.y * (sx0 - sx2) + dst2.y * (sx1 - sx0)) / den;
+        const e = (
+            dst0.x * (sx1 * sy2 - sx2 * sy1)
+            + dst1.x * (sx2 * sy0 - sx0 * sy2)
+            + dst2.x * (sx0 * sy1 - sx1 * sy0)
+        ) / den;
+        const f = (
+            dst0.y * (sx1 * sy2 - sx2 * sy1)
+            + dst1.y * (sx2 * sy0 - sx0 * sy2)
+            + dst2.y * (sx0 * sy1 - sx1 * sy0)
+        ) / den;
+
+        ctx.transform(a, b, c, d, e, f);
+        return true;
+    }
+
+    function expandPointFromCentroid(point, centroid, amount) {
+        const dx = point.x - centroid.x;
+        const dy = point.y - centroid.y;
+        const len = Math.max(0.0001, Math.hypot(dx, dy));
+        return {
+            x: point.x + (dx / len) * amount,
+            y: point.y + (dy / len) * amount
+        };
+    }
+
+    function drawWarpedTriangle(ctx, element, dst0, dst1, dst2, src0, src1, src2, imgW, imgH) {
+        const centroid = {
+            x: (dst0.x + dst1.x + dst2.x) / 3,
+            y: (dst0.y + dst1.y + dst2.y) / 3
+        };
+        const overlap = 1.1;
+        const clip0 = expandPointFromCentroid(dst0, centroid, overlap);
+        const clip1 = expandPointFromCentroid(dst1, centroid, overlap);
+        const clip2 = expandPointFromCentroid(dst2, centroid, overlap);
+
+        ctx.save();
+        ctx.beginPath();
+        ctx.moveTo(clip0.x, clip0.y);
+        ctx.lineTo(clip1.x, clip1.y);
+        ctx.lineTo(clip2.x, clip2.y);
+        ctx.closePath();
+        ctx.clip();
+
+        if (applyTriangleImageTransform(ctx, dst0, dst1, dst2, src0, src1, src2, imgW, imgH)) {
+            ctx.drawImage(element, 0, 0, imgW, imgH);
+        }
+
+        ctx.restore();
+    }
+
+    function solveLinearSystem(matrix, values) {
+        const n = values.length;
+        const a = matrix.map((row, idx) => row.concat(values[idx]));
+        for (let col = 0; col < n; col += 1) {
+            let pivot = col;
+            for (let row = col + 1; row < n; row += 1) {
+                if (Math.abs(a[row][col]) > Math.abs(a[pivot][col])) pivot = row;
+            }
+            if (Math.abs(a[pivot][col]) < 0.0000001) return null;
+            if (pivot !== col) {
+                const tmp = a[col];
+                a[col] = a[pivot];
+                a[pivot] = tmp;
+            }
+            const div = a[col][col];
+            for (let k = col; k <= n; k += 1) a[col][k] /= div;
+            for (let row = 0; row < n; row += 1) {
+                if (row === col) continue;
+                const factor = a[row][col];
+                if (!factor) continue;
+                for (let k = col; k <= n; k += 1) {
+                    a[row][k] -= factor * a[col][k];
+                }
+            }
+        }
+        return a.map((row) => row[n]);
+    }
+
+    function computeDestToUvHomography(corners) {
+        const pairs = [
+            [corners.tl, 0, 0],
+            [corners.tr, 1, 0],
+            [corners.br, 1, 1],
+            [corners.bl, 0, 1]
+        ];
+        const matrix = [];
+        const values = [];
+        pairs.forEach(([p, u, v]) => {
+            matrix.push([p.x, p.y, 1, 0, 0, 0, -u * p.x, -u * p.y]);
+            values.push(u);
+            matrix.push([0, 0, 0, p.x, p.y, 1, -v * p.x, -v * p.y]);
+            values.push(v);
+        });
+        const h = solveLinearSystem(matrix, values);
+        if (!h) return null;
+        return [h[0], h[1], h[2], h[3], h[4], h[5], h[6], h[7], 1];
+    }
+
+    function getWarpWebglProgram(gl) {
+        if (gl.__composerWarpProgram) return gl.__composerWarpProgram;
+
+        const vertexSource = `
+            attribute vec2 a_position;
+            uniform vec2 u_min;
+            uniform vec2 u_size;
+            varying vec2 v_local;
+            void main() {
+                vec2 clip = a_position * 2.0 - 1.0;
+                gl_Position = vec4(clip.x, -clip.y, 0.0, 1.0);
+                v_local = u_min + a_position * u_size;
+            }
+        `;
+        const fragmentSource = `
+            precision mediump float;
+            varying vec2 v_local;
+            uniform sampler2D u_image;
+            uniform mat3 u_h;
+            void main() {
+                vec3 q = u_h * vec3(v_local, 1.0);
+                vec2 uv = q.xy / q.z;
+                if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) {
+                    discard;
+                }
+                gl_FragColor = texture2D(u_image, uv);
+            }
+        `;
+
+        const compile = (type, source) => {
+            const shader = gl.createShader(type);
+            gl.shaderSource(shader, source);
+            gl.compileShader(shader);
+            if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+                console.warn("[Composer] warp shader failed", gl.getShaderInfoLog(shader));
+                gl.deleteShader(shader);
+                return null;
+            }
+            return shader;
+        };
+
+        const vs = compile(gl.VERTEX_SHADER, vertexSource);
+        const fs = compile(gl.FRAGMENT_SHADER, fragmentSource);
+        if (!vs || !fs) return null;
+
+        const program = gl.createProgram();
+        gl.attachShader(program, vs);
+        gl.attachShader(program, fs);
+        gl.linkProgram(program);
+        if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+            console.warn("[Composer] warp program failed", gl.getProgramInfoLog(program));
+            return null;
+        }
+
+        gl.__composerWarpProgram = {
+            program,
+            aPosition: gl.getAttribLocation(program, "a_position"),
+            uMin: gl.getUniformLocation(program, "u_min"),
+            uSize: gl.getUniformLocation(program, "u_size"),
+            uImage: gl.getUniformLocation(program, "u_image"),
+            uH: gl.getUniformLocation(program, "u_h"),
+            positionBuffer: gl.createBuffer(),
+            texture: gl.createTexture()
+        };
+        return gl.__composerWarpProgram;
+    }
+
+    function buildWarpCacheKey(element, width, height, corners) {
+        const sourceW = element?.naturalWidth || element?.videoWidth || element?.width || width;
+        const sourceH = element?.naturalHeight || element?.videoHeight || element?.height || height;
+        const cornerKey = WARP_CORNER_KEYS.map((key) => (
+            `${Math.round(corners[key].x * 10) / 10},${Math.round(corners[key].y * 10) / 10}`
+        )).join("|");
+        return `${sourceW}x${sourceH}:${Math.round(width)}x${Math.round(height)}:${cornerKey}`;
+    }
+
+    function buildWebglWarpBitmap(owner, element, width, height, corners) {
+        if (!owner || !element) return null;
+        const h = computeDestToUvHomography(corners);
+        if (!h) return null;
+
+        const xs = WARP_CORNER_KEYS.map((key) => corners[key].x);
+        const ys = WARP_CORNER_KEYS.map((key) => corners[key].y);
+        const minX = Math.floor(Math.min(...xs));
+        const maxX = Math.ceil(Math.max(...xs));
+        const minY = Math.floor(Math.min(...ys));
+        const maxY = Math.ceil(Math.max(...ys));
+        const outW = Math.max(1, maxX - minX);
+        const outH = Math.max(1, maxY - minY);
+        if (outW > 4096 || outH > 4096) return null;
+
+        const cacheKey = buildWarpCacheKey(element, width, height, corners);
+        if (owner.__composerWarpCacheKey === cacheKey && owner.__composerWarpCacheCanvas) {
+            return {
+                canvas: owner.__composerWarpCacheCanvas,
+                left: owner.__composerWarpCacheLeft,
+                top: owner.__composerWarpCacheTop
+            };
+        }
+
+        const off = owner.__composerWarpGlCanvas || document.createElement("canvas");
+        off.width = outW;
+        off.height = outH;
+        owner.__composerWarpGlCanvas = off;
+        const gl = owner.__composerWarpGl || off.getContext("webgl", {
+            alpha: true,
+            premultipliedAlpha: false,
+            preserveDrawingBuffer: true
+        });
+        if (!gl) return null;
+        owner.__composerWarpGl = gl;
+
+        const setup = getWarpWebglProgram(gl);
+        if (!setup) return null;
+
+        gl.viewport(0, 0, outW, outH);
+        gl.clearColor(0, 0, 0, 0);
+        gl.clear(gl.COLOR_BUFFER_BIT);
+        gl.useProgram(setup.program);
+
+        gl.bindBuffer(gl.ARRAY_BUFFER, setup.positionBuffer);
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([
+            0, 0, 1, 0, 0, 1,
+            0, 1, 1, 0, 1, 1
+        ]), gl.STATIC_DRAW);
+        gl.enableVertexAttribArray(setup.aPosition);
+        gl.vertexAttribPointer(setup.aPosition, 2, gl.FLOAT, false, 0, 0);
+
+        gl.activeTexture(gl.TEXTURE0);
+        gl.bindTexture(gl.TEXTURE_2D, setup.texture);
+        gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+        try {
+            gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, element);
+        } catch (err) {
+            console.warn("[Composer] warp texture upload failed", err);
+            return null;
+        }
+
+        gl.uniform1i(setup.uImage, 0);
+        gl.uniform2f(setup.uMin, minX, minY);
+        gl.uniform2f(setup.uSize, outW, outH);
+        gl.uniformMatrix3fv(setup.uH, false, new Float32Array([
+            h[0], h[3], h[6],
+            h[1], h[4], h[7],
+            h[2], h[5], h[8]
+        ]));
+        gl.drawArrays(gl.TRIANGLES, 0, 6);
+
+        owner.__composerWarpCacheKey = cacheKey;
+        owner.__composerWarpCacheCanvas = off;
+        owner.__composerWarpCacheLeft = minX;
+        owner.__composerWarpCacheTop = minY;
+        return { canvas: off, left: minX, top: minY };
+    }
+
+    function renderWarpedImage(ctx, element, width, height, corners, owner) {
+        const webglWarp = buildWebglWarpBitmap(owner, element, width, height, corners);
+        if (webglWarp?.canvas) {
+            ctx.drawImage(webglWarp.canvas, webglWarp.left, webglWarp.top);
+            return;
+        }
+
+        const imgW = element?.naturalWidth || element?.videoWidth || element?.width || width;
+        const imgH = element?.naturalHeight || element?.videoHeight || element?.height || height;
+        if (!element || !imgW || !imgH || !width || !height) return;
+
+        ctx.save();
+        ctx.beginPath();
+        ctx.moveTo(corners.tl.x, corners.tl.y);
+        ctx.lineTo(corners.tr.x, corners.tr.y);
+        ctx.lineTo(corners.br.x, corners.br.y);
+        ctx.lineTo(corners.bl.x, corners.bl.y);
+        ctx.closePath();
+        ctx.clip();
+
+        const sTl = { u: 0, v: 0 };
+        const sTr = { u: 1, v: 0 };
+        const sBr = { u: 1, v: 1 };
+        const sBl = { u: 0, v: 1 };
+        drawWarpedTriangle(ctx, element, corners.tl, corners.tr, corners.br, sTl, sTr, sBr, imgW, imgH);
+        drawWarpedTriangle(ctx, element, corners.tl, corners.br, corners.bl, sTl, sBr, sBl, imgW, imgH);
+        ctx.restore();
+    }
+
+    function installWarpImageClass() {
+        const fabricRef = window.fabric;
+        if (!fabricRef || fabricRef.WarpImage) return;
+
+        fabricRef.WarpImage = fabricRef.util.createClass(fabricRef.Image, {
+            type: "warpImage",
+
+            initialize: function (element, options = {}) {
+                options.objectCaching = false;
+                this.callSuper("initialize", element, options);
+                this.objectCaching = false;
+                this.warpCorners = normalizeWarpCorners(options.warpCorners, this.width, this.height);
+            },
+
+            toObject: function (propertiesToInclude) {
+                return fabricRef.util.object.extend(
+                    this.callSuper("toObject", (propertiesToInclude || []).concat(["warpCorners"])),
+                    { warpCorners: cloneWarpCorners(this.warpCorners) }
+                );
+            },
+
+            _render: function (ctx) {
+                const element = this._element;
+                const corners = normalizeWarpCorners(this.warpCorners, this.width, this.height);
+                this.warpCorners = corners;
+                renderWarpedImage(ctx, element, this.width, this.height, corners, this);
+            }
+        });
+
+        fabricRef.WarpImage.fromObject = function (object, callback) {
+            fabricRef.util.loadImage(object.src, (img, isError) => {
+                if (isError || !img) {
+                    callback(null, true);
+                    return;
+                }
+                callback(new fabricRef.WarpImage(img, object), false);
+            }, null, object.crossOrigin);
+        };
+    }
+
+    function setWarpControls(obj) {
+        if (!obj || !window.fabric) return;
+        if (!obj.__composerWarpPrevInteraction) {
+            obj.__composerWarpPrevInteraction = {
+                hasControls: obj.hasControls,
+                hasBorders: obj.hasBorders,
+                lockMovementX: obj.lockMovementX,
+                lockMovementY: obj.lockMovementY,
+                hoverCursor: obj.hoverCursor,
+                moveCursor: obj.moveCursor
+            };
+        }
+        obj.hasControls = false;
+        obj.hasBorders = false;
+        obj.lockMovementX = false;
+        obj.lockMovementY = false;
+        obj.hoverCursor = "move";
+        obj.moveCursor = "move";
+        obj.__composerWarpOrientation = Math.sign(getWarpSignedArea(
+            normalizeWarpCorners(obj.warpCorners, obj.width, obj.height)
+        )) || 1;
+        obj.__composerWarpEditing = true;
+        obj.setCoords();
+    }
+
+    function clearWarpControls(obj) {
+        if (!obj || !obj.__composerWarpEditing || !window.fabric) return;
+        const prev = obj.__composerWarpPrevInteraction || {};
+        obj.hasControls = prev.hasControls ?? true;
+        obj.hasBorders = prev.hasBorders ?? true;
+        obj.lockMovementX = prev.lockMovementX ?? false;
+        obj.lockMovementY = prev.lockMovementY ?? false;
+        obj.hoverCursor = prev.hoverCursor ?? null;
+        obj.moveCursor = prev.moveCursor ?? null;
+        obj.__composerWarpPrevInteraction = null;
+        obj.__composerWarpEditing = false;
+        obj.setCoords();
+    }
+
+    function clearWarpOverlay() {
+        if (!canvas?.contextTop) return;
+        canvas.clearContext(canvas.contextTop);
+    }
+
+    function getWarpCornerViewportPoints(obj) {
+        if (!canvas || !obj || !window.fabric?.util) return null;
+        const corners = normalizeWarpCorners(obj.warpCorners, obj.width, obj.height);
+        const vpt = canvas.viewportTransform || window.fabric.iMatrix;
+        const matrix = window.fabric.util.multiplyTransformMatrices(vpt, obj.calcTransformMatrix());
+        const points = {};
+        WARP_CORNER_KEYS.forEach((key) => {
+            points[key] = window.fabric.util.transformPoint(
+                new window.fabric.Point(corners[key].x, corners[key].y),
+                matrix
+            );
+        });
+        return points;
+    }
+
+    function drawWarpOverlay() {
+        if (!canvas?.contextTop || !warpEditObject || canvas.getActiveObject() !== warpEditObject) return;
+        const points = getWarpCornerViewportPoints(warpEditObject);
+        if (!points) return;
+
+        const ctx = canvas.contextTop;
+        canvas.clearContext(ctx);
+
+        ctx.save();
+        ctx.strokeStyle = "#2f7ddf";
+        ctx.lineWidth = 1.6;
+        ctx.beginPath();
+        ctx.moveTo(points.tl.x, points.tl.y);
+        ctx.lineTo(points.tr.x, points.tr.y);
+        ctx.lineTo(points.br.x, points.br.y);
+        ctx.lineTo(points.bl.x, points.bl.y);
+        ctx.closePath();
+        ctx.stroke();
+
+        WARP_CORNER_KEYS.forEach((key) => {
+            const p = points[key];
+            const size = 13;
+            ctx.fillStyle = "#ffffff";
+            ctx.strokeStyle = "#2f7ddf";
+            ctx.lineWidth = 2;
+            ctx.fillRect(p.x - size / 2, p.y - size / 2, size, size);
+            ctx.strokeRect(p.x - size / 2, p.y - size / 2, size, size);
+        });
+        ctx.restore();
+    }
+
+    function getWarpCornerAtEvent(eventData) {
+        if (!canvas || !warpEditObject || canvas.getActiveObject() !== warpEditObject) return null;
+        const points = getWarpCornerViewportPoints(warpEditObject);
+        if (!points) return null;
+        const pointer = canvas.getPointer(eventData, true);
+        const threshold = 18;
+        let nearest = null;
+        let nearestDist = Infinity;
+        WARP_CORNER_KEYS.forEach((key) => {
+            const p = points[key];
+            const dist = Math.hypot(pointer.x - p.x, pointer.y - p.y);
+            if (dist < nearestDist) {
+                nearest = key;
+                nearestDist = dist;
+            }
+        });
+        return nearestDist <= threshold ? nearest : null;
+    }
+
+    function setWarpCornerFromEvent(cornerKey, eventData) {
+        if (!canvas || !warpEditObject || !cornerKey || !window.fabric?.util) return false;
+        const pointer = canvas.getPointer(eventData, false);
+        const inv = window.fabric.util.invertTransform(warpEditObject.calcTransformMatrix());
+        const local = window.fabric.util.transformPoint(new window.fabric.Point(pointer.x, pointer.y), inv);
+        const current = normalizeWarpCorners(warpEditObject.warpCorners, warpEditObject.width, warpEditObject.height);
+        const nextCorners = cloneWarpCorners(current);
+        nextCorners[cornerKey] = { x: local.x, y: local.y };
+        if (!isValidWarpCorners(nextCorners, warpEditObject.__composerWarpOrientation || 1)) {
+            return false;
+        }
+        warpEditObject.warpCorners = nextCorners;
+        warpEditObject.dirty = true;
+        warpEditObject.setCoords();
+        canvas.requestRenderAll();
+        return true;
+    }
+
+    function bindWarpEditHandlers() {
+        if (!canvas || canvas.__composerWarpHandlersBound) return;
+
+        canvas.on("after:render", drawWarpOverlay);
+        canvas.on("mouse:down:before", (opt) => {
+            if (!warpEditObject || !opt?.e) return;
+            const corner = getWarpCornerAtEvent(opt.e);
+            if (!corner) return;
+            warpDragCorner = corner;
+            if (canvas.selection !== false) {
+                canvas.__composerPrevSelection = canvas.selection;
+                canvas.selection = false;
+            }
+            opt.e.preventDefault();
+            opt.e.stopPropagation();
+        });
+        canvas.on("mouse:down", (opt) => {
+            if (!warpEditObject || warpDragCorner || !opt?.e) return;
+            const corner = getWarpCornerAtEvent(opt.e);
+            if (!corner) return;
+            warpDragCorner = corner;
+            opt.e.preventDefault();
+            opt.e.stopPropagation();
+        });
+        canvas.on("mouse:move", (opt) => {
+            if (!warpDragCorner || !opt?.e) return;
+            setWarpCornerFromEvent(warpDragCorner, opt.e);
+            opt.e.preventDefault();
+            opt.e.stopPropagation();
+        });
+        canvas.on("mouse:up", () => {
+            if (!warpDragCorner) return;
+            warpDragCorner = null;
+            if (typeof canvas.__composerPrevSelection === "boolean") {
+                canvas.selection = canvas.__composerPrevSelection;
+                canvas.__composerPrevSelection = undefined;
+            }
+            flushHistoryCaptureNow();
+            drawWarpOverlay();
+        });
+
+        const upper = canvas.upperCanvasEl;
+        if (upper) {
+            upper.addEventListener("mousedown", (e) => {
+                if (!warpEditObject || e.button !== 0) return;
+                const corner = getWarpCornerAtEvent(e);
+                if (!corner) return;
+                warpDragCorner = corner;
+                canvas.setActiveObject(warpEditObject);
+                if (canvas.selection !== false) {
+                    canvas.__composerPrevSelection = canvas.selection;
+                    canvas.selection = false;
+                }
+                e.preventDefault();
+                e.stopPropagation();
+                e.stopImmediatePropagation();
+            }, true);
+        }
+
+        window.addEventListener("mousemove", (e) => {
+            if (!warpDragCorner) return;
+            setWarpCornerFromEvent(warpDragCorner, e);
+            e.preventDefault();
+            e.stopPropagation();
+        }, true);
+
+        window.addEventListener("mouseup", () => {
+            if (!warpDragCorner) return;
+            warpDragCorner = null;
+            if (typeof canvas.__composerPrevSelection === "boolean") {
+                canvas.selection = canvas.__composerPrevSelection;
+                canvas.__composerPrevSelection = undefined;
+            }
+            flushHistoryCaptureNow();
+            drawWarpOverlay();
+        }, true);
+
+        canvas.__composerWarpHandlersBound = true;
+    }
+
+    function syncWarpButtonState() {
+        const btn = document.getElementById("composer-warp-btn");
+        if (!btn) return;
+        const active = canvas?.getActiveObject();
+        const isActive = !!(active && active === warpEditObject && active.__composerWarpEditing);
+        btn.classList.toggle("is-active", isActive);
+        btn.setAttribute("aria-pressed", isActive ? "true" : "false");
+    }
+
+    function disableWarpEdit(silent = false) {
+        if (warpEditObject) {
+            clearWarpControls(warpEditObject);
+            warpEditObject = null;
+        }
+        warpDragCorner = null;
+        clearWarpOverlay();
+        syncWarpButtonState();
+        if (canvas) canvas.requestRenderAll();
+        if (!silent) setStatus("Warp mode off");
+    }
+
+    function convertImageToWarpImage(obj) {
+        if (!canvas || !window.fabric?.WarpImage || !obj) return null;
+        if (obj.type === "warpImage") return obj;
+        if (obj.type !== "image") return null;
+
+        const element = obj._element;
+        if (!element) return null;
+
+        const props = obj.toObject(["name", "composerType"]);
+        props.warpCorners = obj.warpCorners
+            ? cloneWarpCorners(obj.warpCorners)
+            : defaultWarpCorners(obj.width, obj.height);
+        const replacement = new window.fabric.WarpImage(element, props);
+        const objects = canvas.getObjects();
+        const index = objects.indexOf(obj);
+
+        canvas.remove(obj);
+        if (typeof canvas.insertAt === "function" && index >= 0) {
+            canvas.insertAt(replacement, index);
+        } else {
+            canvas.add(replacement);
+            if (index >= 0) canvas.moveTo(replacement, index);
+        }
+
+        if (obj === backgroundObject) {
+            backgroundObject = replacement;
+        }
+
+        replacement.setCoords();
+        canvas.setActiveObject(replacement);
+        return replacement;
+    }
+
+    function toggleWarpModeForActiveObject() {
+        if (!canvas || !window.fabric?.WarpImage) {
+            setStatus("Warp is not ready");
+            return;
+        }
+
+        const active = canvas.getActiveObject();
+        if (!active || active.type === "activeSelection") {
+            setStatus("Select one image to warp");
+            return;
+        }
+
+        if (active === warpEditObject && active.__composerWarpEditing) {
+            disableWarpEdit(false);
+            flushHistoryCaptureNow();
+            return;
+        }
+
+        disableDrawingMode(true);
+        disableWarpEdit(true);
+
+        const target = convertImageToWarpImage(active);
+        if (!target) {
+            setStatus("Warp works only for image layers");
+            return;
+        }
+
+        target.warpCorners = normalizeWarpCorners(target.warpCorners, target.width, target.height);
+        setWarpControls(target);
+        warpEditObject = target;
+        canvas.setActiveObject(target);
+        canvas.requestRenderAll();
+        syncWarpButtonState();
+        scheduleHistoryCapture();
+        setStatus("Warp mode: drag the 4 corner points");
+    }
+
     function getHistorySnapshot() {
         if (!canvas) return null;
-        const canvasJson = canvas.toJSON(["name", "composerType"]);
+        const canvasJson = canvas.toJSON(["name", "composerType", "warpCorners"]);
         const key = JSON.stringify({
             sceneWidth,
             sceneHeight,
@@ -541,12 +1265,12 @@
         if (isTextObject(obj)) return "T";
         if (obj.type === "path") return "BR";
         if (isShapeObject(obj)) return "";
-        if (obj.type === "image") return "IMG";
+        if (isImageObject(obj)) return "IMG";
         return "L";
     }
 
     function getImageThumbUrl(obj) {
-        if (!obj || obj.type !== "image") return null;
+        if (!isImageObject(obj)) return null;
         const src = obj?._element?.currentSrc || obj?._element?.src || "";
         if (typeof src !== "string" || !src) return null;
         return src;
@@ -2171,7 +2895,8 @@
                 // Keep custom metadata used by Composer tools.
                 cloned.set({
                     composerType: source.composerType,
-                    name: source.name
+                    name: source.name,
+                    warpCorners: source.warpCorners ? cloneWarpCorners(source.warpCorners) : undefined
                 });
 
                 cloned.set({
@@ -3050,7 +3775,7 @@
     }
 
     function isImageObject(obj) {
-        return !!obj && obj.type === "image";
+        return !!obj && (obj.type === "image" || obj.type === "warpImage");
     }
 
     function getImageDataUrlFromObject(obj) {
@@ -3149,7 +3874,15 @@
                 throw new Error(errText);
             }
 
-            const nextImage = await loadFabricImageFromDataUrl(payload.image);
+            const activeWarpCorners = active.warpCorners ? cloneWarpCorners(active.warpCorners) : null;
+            const activeWasWarpEditing = active === warpEditObject && active.__composerWarpEditing;
+            const prevInteraction = active.__composerWarpPrevInteraction || null;
+            let nextImage = await loadFabricImageFromDataUrl(payload.image);
+            if (activeWarpCorners && window.fabric?.WarpImage && nextImage?._element) {
+                nextImage = new window.fabric.WarpImage(nextImage._element, {
+                    warpCorners: activeWarpCorners
+                });
+            }
             const objects = canvas.getObjects();
             const prevIndex = objects.indexOf(active);
 
@@ -3168,21 +3901,30 @@
                 opacity: active.opacity,
                 selectable: active.selectable,
                 evented: active.evented,
-                hasControls: active.hasControls,
-                hasBorders: active.hasBorders,
-                lockMovementX: active.lockMovementX,
-                lockMovementY: active.lockMovementY,
+                hasControls: activeWasWarpEditing ? (prevInteraction?.hasControls ?? true) : active.hasControls,
+                hasBorders: activeWasWarpEditing ? (prevInteraction?.hasBorders ?? true) : active.hasBorders,
+                lockMovementX: activeWasWarpEditing ? (prevInteraction?.lockMovementX ?? false) : active.lockMovementX,
+                lockMovementY: activeWasWarpEditing ? (prevInteraction?.lockMovementY ?? false) : active.lockMovementY,
                 lockRotation: active.lockRotation,
                 lockScalingX: active.lockScalingX,
                 lockScalingY: active.lockScalingY,
+                hoverCursor: activeWasWarpEditing ? (prevInteraction?.hoverCursor ?? null) : active.hoverCursor,
+                moveCursor: activeWasWarpEditing ? (prevInteraction?.moveCursor ?? null) : active.moveCursor,
                 name: active.name || "Image",
                 composerType: active.composerType || "object",
+                warpCorners: activeWarpCorners || undefined,
                 cornerStyle: "circle",
                 transparentCorners: false,
-                padding: 4
+                padding: 4,
+                objectCaching: false
             });
 
             canvas.remove(active);
+            if (active === warpEditObject) {
+                warpEditObject = null;
+                warpDragCorner = null;
+                clearWarpOverlay();
+            }
             if (active === backgroundObject) {
                 backgroundObject = null;
             }
@@ -3193,6 +3935,15 @@
             }
             nextImage.setCoords();
             canvas.setActiveObject(nextImage);
+            if (activeWasWarpEditing && activeWarpCorners && nextImage.type === "warpImage") {
+                setWarpControls(nextImage);
+                warpEditObject = nextImage;
+                syncWarpButtonState();
+            } else {
+                clearWarpControls(nextImage);
+                syncWarpButtonState();
+            }
+            nextImage.dirty = true;
             canvas.requestRenderAll();
             setStatus("Background removed");
         } catch (err) {
@@ -4110,6 +4861,8 @@
                 return;
             }
 
+            installWarpImageClass();
+
             try {
                 canvas = new fabric.Canvas("forge-composer-canvas", {
                     preserveObjectStacking: true,
@@ -4199,6 +4952,7 @@
             bindCanvasBackgroundControl();
             bindDrawingControls();
             bindDrawingCursorPreview();
+            bindWarpEditHandlers();
             bindObjectOpacityControls();
             bindTextStyleControls();
             bindCanvasSizeControls();
@@ -4227,6 +4981,7 @@
             const layerDownBtn = document.getElementById("composer-layer-down-btn");
             const flipXBtn = document.getElementById("composer-flip-x-btn");
             const flipYBtn = document.getElementById("composer-flip-y-btn");
+            const warpBtn = document.getElementById("composer-warp-btn");
             const exportBtn = document.getElementById("composer-export-btn");
             const exportLayerBtn = document.getElementById("composer-export-layer-btn");
             const sendImg2ImgBtn = document.getElementById("composer-send-img2img-btn");
@@ -4289,6 +5044,7 @@
             layerDownBtn?.addEventListener("click", () => moveActiveObjectLayer("down"));
             flipXBtn?.addEventListener("click", () => flipActiveObject("x"));
             flipYBtn?.addEventListener("click", () => flipActiveObject("y"));
+            warpBtn?.addEventListener("click", () => toggleWarpModeForActiveObject());
 
             canvas.on("selection:created", syncTextColorControlFromSelection);
             canvas.on("selection:updated", syncTextColorControlFromSelection);
@@ -4296,6 +5052,12 @@
             canvas.on("selection:updated", syncTextStyleControlsFromSelection);
             canvas.on("selection:created", syncObjectOpacityControlFromSelection);
             canvas.on("selection:updated", syncObjectOpacityControlFromSelection);
+            canvas.on("selection:created", syncWarpButtonState);
+            canvas.on("selection:updated", () => {
+                const active = canvas.getActiveObject();
+                if (warpEditObject && active !== warpEditObject) disableWarpEdit(true);
+                syncWarpButtonState();
+            });
             canvas.on("selection:created", () => {
                 lastEraserTargets = getEraserTargets();
                 if (drawingTool === "eraser" && canvas.isDrawingMode) applyDrawingBrush();
@@ -4305,6 +5067,7 @@
                 if (drawingTool === "eraser" && canvas.isDrawingMode) applyDrawingBrush();
             });
             canvas.on("selection:cleared", () => {
+                disableWarpEdit(true);
                 syncTextStyleControlsFromSelection();
                 syncObjectOpacityControlFromSelection();
                 if (drawingTool === "eraser" && canvas.isDrawingMode && !eraserFallbackActive) {

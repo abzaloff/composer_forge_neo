@@ -130,6 +130,15 @@ COMPOSER_HTML = """
             <button id="composer-layer-down-btn" class="composer-btn" type="button" title="Layer Down">&darr;</button>
             <button id="composer-flip-x-btn" class="composer-btn" type="button" title="Flip Horizontal">&hArr;</button>
             <button id="composer-flip-y-btn" class="composer-btn" type="button" title="Flip Vertical">&vArr;</button>
+            <button id="composer-warp-btn" class="composer-btn composer-icon-btn" type="button" title="Warp corners" aria-label="Warp corners">
+                <svg class="composer-toolbar-icon" viewBox="0 0 16 16" aria-hidden="true">
+                    <polygon points="3,3.5 13,2.5 12,12.5 4,13.5"></polygon>
+                    <circle cx="3" cy="3.5" r="1.1"></circle>
+                    <circle cx="13" cy="2.5" r="1.1"></circle>
+                    <circle cx="12" cy="12.5" r="1.1"></circle>
+                    <circle cx="4" cy="13.5" r="1.1"></circle>
+                </svg>
+            </button>
             <button id="composer-undo-btn" class="composer-btn composer-history-btn" type="button" title="Undo" aria-label="Undo">
                 <span class="composer-history-glyph" aria-hidden="true">&#8630;</span>
             </button>

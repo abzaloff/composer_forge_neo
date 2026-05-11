@@ -105,6 +105,12 @@
     box-shadow: 0 0 0 1px rgba(255,140,0,.25) inset;
 }
 
+#forge-composer-root .composer-btn.is-active {
+    border-color: #ff8c00;
+    background: #29313d;
+    box-shadow: 0 0 0 1px rgba(255,140,0,.35) inset;
+}
+
 #txt2img_send_to_composer,
 #img2img_send_to_composer {
     position: relative;
