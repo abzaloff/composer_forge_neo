@@ -2224,7 +2224,7 @@
             padding: 4
         });
 
-        const maxSize = 260;
+        const maxSize = 768;
         const scale = Math.min(1, maxSize / realW, maxSize / realH);
         const focus = getSceneFocusCenter();
 
@@ -2324,6 +2324,27 @@
         };
     }
 
+    const DEFAULT_SHAPE_SIZE = 320;
+
+    function getRegularPolygonRadiusForSize(sides, size) {
+        let minX = Infinity;
+        let minY = Infinity;
+        let maxX = -Infinity;
+        let maxY = -Infinity;
+        const angleOffset = -Math.PI / 2;
+        for (let i = 0; i < sides; i += 1) {
+            const angle = angleOffset + (i * 2 * Math.PI) / sides;
+            const x = Math.cos(angle);
+            const y = Math.sin(angle);
+            minX = Math.min(minX, x);
+            minY = Math.min(minY, y);
+            maxX = Math.max(maxX, x);
+            maxY = Math.max(maxY, y);
+        }
+        const unitSize = Math.max(maxX - minX, maxY - minY);
+        return unitSize > 0 ? size / unitSize : size / 2;
+    }
+
     function buildRegularPolygonPoints(sides, radius) {
         const points = [];
         const angleOffset = -Math.PI / 2;
@@ -2349,8 +2370,8 @@
         if (shapeType === "rect") {
             shape = new window.fabric.Rect({
                 ...base,
-                width: 140,
-                height: 140,
+                width: DEFAULT_SHAPE_SIZE,
+                height: DEFAULT_SHAPE_SIZE,
                 rx: 2,
                 ry: 2,
                 name: "Square"
@@ -2358,26 +2379,26 @@
         } else if (shapeType === "circle") {
             shape = new window.fabric.Circle({
                 ...base,
-                radius: 70,
+                radius: DEFAULT_SHAPE_SIZE / 2,
                 name: "Circle"
             });
         } else if (shapeType === "triangle") {
-            shape = new window.fabric.Polygon(buildRegularPolygonPoints(3, 82), {
+            shape = new window.fabric.Polygon(buildRegularPolygonPoints(3, getRegularPolygonRadiusForSize(3, DEFAULT_SHAPE_SIZE)), {
                 ...base,
                 name: "Triangle"
             });
         } else if (shapeType === "pentagon") {
-            shape = new window.fabric.Polygon(buildRegularPolygonPoints(5, 80), {
+            shape = new window.fabric.Polygon(buildRegularPolygonPoints(5, getRegularPolygonRadiusForSize(5, DEFAULT_SHAPE_SIZE)), {
                 ...base,
                 name: "Pentagon"
             });
         } else if (shapeType === "hexagon") {
-            shape = new window.fabric.Polygon(buildRegularPolygonPoints(6, 80), {
+            shape = new window.fabric.Polygon(buildRegularPolygonPoints(6, getRegularPolygonRadiusForSize(6, DEFAULT_SHAPE_SIZE)), {
                 ...base,
                 name: "Hexagon"
             });
         } else if (shapeType === "octagon") {
-            shape = new window.fabric.Polygon(buildRegularPolygonPoints(8, 80), {
+            shape = new window.fabric.Polygon(buildRegularPolygonPoints(8, getRegularPolygonRadiusForSize(8, DEFAULT_SHAPE_SIZE)), {
                 ...base,
                 name: "Octagon"
             });
