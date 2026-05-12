@@ -2239,6 +2239,49 @@
         setStatus("Background fitted to canvas");
     }
 
+    function coverActiveImageToCanvas() {
+        if (!canvas || !window.fabric) {
+            setStatus("Canvas not ready");
+            return;
+        }
+
+        const active = canvas.getActiveObject();
+        if (!isImageObject(active)) {
+            setStatus("Select an image first");
+            return;
+        }
+
+        const iw = active.width || active._element?.naturalWidth || 0;
+        const ih = active.height || active._element?.naturalHeight || 0;
+        if (!iw || !ih) {
+            setStatus("Image has invalid size");
+            return;
+        }
+
+        flushHistoryCaptureNow();
+
+        const angle = ((Number(active.angle) || 0) * Math.PI) / 180;
+        const cos = Math.abs(Math.cos(angle));
+        const sin = Math.abs(Math.sin(angle));
+        const scaleX = (sceneWidth * cos + sceneHeight * sin) / iw;
+        const scaleY = (sceneWidth * sin + sceneHeight * cos) / ih;
+        const scale = Math.max(scaleX, scaleY);
+        const signX = (Number(active.scaleX) || 1) < 0 ? -1 : 1;
+        const signY = (Number(active.scaleY) || 1) < 0 ? -1 : 1;
+        const center = new window.fabric.Point(sceneWidth / 2, sceneHeight / 2);
+
+        active.set({
+            scaleX: signX * scale,
+            scaleY: signY * scale
+        });
+        active.setPositionByOrigin(center, "center", "center");
+        active.setCoords();
+        canvas.setActiveObject(active);
+        canvas.requestRenderAll();
+        scheduleHistoryCapture();
+        setStatus("Image covered canvas");
+    }
+
     function addImageObject(img, asBackground, name) {
         const realW = img.width || img._element?.naturalWidth || 0;
         const realH = img.height || img._element?.naturalHeight || 0;
@@ -5111,6 +5154,7 @@
             const flipXBtn = document.getElementById("composer-flip-x-btn");
             const flipYBtn = document.getElementById("composer-flip-y-btn");
             const warpBtn = document.getElementById("composer-warp-btn");
+            const coverCanvasBtn = document.getElementById("composer-cover-canvas-btn");
             const exportBtn = document.getElementById("composer-export-btn");
             const exportLayerBtn = document.getElementById("composer-export-layer-btn");
             const sendImg2ImgBtn = document.getElementById("composer-send-img2img-btn");
@@ -5174,6 +5218,10 @@
             flipXBtn?.addEventListener("click", () => flipActiveObject("x"));
             flipYBtn?.addEventListener("click", () => flipActiveObject("y"));
             warpBtn?.addEventListener("click", () => toggleWarpModeForActiveObject());
+            coverCanvasBtn?.addEventListener("click", () => {
+                disableDrawingMode(true);
+                coverActiveImageToCanvas();
+            });
 
             canvas.on("selection:created", syncTextColorControlFromSelection);
             canvas.on("selection:updated", syncTextColorControlFromSelection);

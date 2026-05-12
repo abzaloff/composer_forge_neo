@@ -139,6 +139,22 @@ COMPOSER_HTML = """
                     <circle cx="4" cy="13.5" r="1.1"></circle>
                 </svg>
             </button>
+            <button id="composer-cover-canvas-btn" class="composer-btn composer-icon-btn" type="button" title="Cover canvas" aria-label="Cover canvas">
+                <svg class="composer-toolbar-icon" viewBox="0 0 16 16" aria-hidden="true">
+                    <path d="M6.4 6.4 3 3"></path>
+                    <path d="M3 3h3.2"></path>
+                    <path d="M3 3v3.2"></path>
+                    <path d="M9.6 6.4 13 3"></path>
+                    <path d="M13 3H9.8"></path>
+                    <path d="M13 3v3.2"></path>
+                    <path d="M6.4 9.6 3 13"></path>
+                    <path d="M3 13h3.2"></path>
+                    <path d="M3 13V9.8"></path>
+                    <path d="M9.6 9.6 13 13"></path>
+                    <path d="M13 13H9.8"></path>
+                    <path d="M13 13V9.8"></path>
+                </svg>
+            </button>
             <button id="composer-undo-btn" class="composer-btn composer-history-btn" type="button" title="Undo" aria-label="Undo">
                 <span class="composer-history-glyph" aria-hidden="true">&#8630;</span>
             </button>
