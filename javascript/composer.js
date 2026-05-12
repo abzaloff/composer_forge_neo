@@ -47,6 +47,7 @@
     let lockedLayerObject = null;
     let pointerDragTargetLockActive = false;
     let pointerDragTargetLockPrevSkipFind = false;
+    let shiftMoveAxisLock = null;
     let pendingExternalImages = [];
     let warpEditObject = null;
     let warpDragCorner = null;
@@ -1262,6 +1263,50 @@
         pointerDragTargetLockActive = false;
     }
 
+    function clearShiftMoveAxisLock() {
+        shiftMoveAxisLock = null;
+    }
+
+    function constrainObjectMoveToShiftAxis(e) {
+        const target = e?.target;
+        if (!target) {
+            clearShiftMoveAxisLock();
+            return;
+        }
+
+        if (!e?.e?.shiftKey) {
+            clearShiftMoveAxisLock();
+            return;
+        }
+
+        if (!shiftMoveAxisLock || shiftMoveAxisLock.target !== target) {
+            const before = target.__composerBeforeTransform;
+            shiftMoveAxisLock = {
+                target,
+                startLeft: Number.isFinite(before?.left) ? before.left : target.left,
+                startTop: Number.isFinite(before?.top) ? before.top : target.top,
+                axis: null
+            };
+        }
+
+        const dx = (Number(target.left) || 0) - shiftMoveAxisLock.startLeft;
+        const dy = (Number(target.top) || 0) - shiftMoveAxisLock.startTop;
+
+        if (!shiftMoveAxisLock.axis) {
+            const threshold = 2;
+            if (Math.abs(dx) < threshold && Math.abs(dy) < threshold) return;
+            shiftMoveAxisLock.axis = Math.abs(dx) >= Math.abs(dy) ? "x" : "y";
+        }
+
+        if (shiftMoveAxisLock.axis === "x") {
+            target.set("top", shiftMoveAxisLock.startTop);
+        } else {
+            target.set("left", shiftMoveAxisLock.startLeft);
+        }
+
+        target.setCoords();
+    }
+
     function getLayerDisplayName(obj) {
         if (!obj) return "Layer";
         if (obj.composerType === "background") return "BG";
@@ -1618,8 +1663,10 @@
         canvas.on("object:added", onHistoryChange);
         canvas.on("object:removed", onHistoryChange);
         canvas.on("before:transform", (e) => {
+            clearShiftMoveAxisLock();
             rememberBeforeTransform(e?.transform?.target);
         });
+        canvas.on("object:moving", constrainObjectMoveToShiftAxis);
         canvas.on("object:modified", (e) => {
             if (!shouldTrackModified(e?.target)) return;
             onHistoryChange();
@@ -1630,6 +1677,7 @@
         });
         canvas.on("mouse:up", () => {
             endPointerDragTargetLock();
+            clearShiftMoveAxisLock();
             if (drawingTool === "eraser" && canvas.isDrawingMode && !eraserFallbackActive) {
                 flushHistoryCaptureNow();
             }
