@@ -56,6 +56,7 @@
     let warpDragCorner = null;
     let cleanMaskPreviewObject = null;
     let cleanMaskTargetObject = null;
+    let cleanMaskPreviewRevision = 0;
     const WARP_CORNER_KEYS = ["tl", "tr", "br", "bl"];
     const CLEAN_MASK_TYPE = "cleanMask";
 
@@ -1836,15 +1837,31 @@
         const upper = canvas.upperCanvasEl;
         if (!upper) return;
 
+        const refreshDrawingAfterMiddlePan = () => {
+            if (!canvas) return;
+            resetFabricDrawingState();
+            if (drawingTool && canvas.isDrawingMode && !eraserFallbackActive) {
+                applyDrawingBrush();
+            }
+        };
+
         upper.addEventListener("mousedown", (e) => {
             if (e.button !== 1) return;
             e.preventDefault();
             e.stopPropagation();
+            e.stopImmediatePropagation();
+            resetFabricDrawingState();
             middlePanActive = true;
             middlePanLastX = e.clientX;
             middlePanLastY = e.clientY;
             upper.style.cursor = "grabbing";
-        });
+        }, { capture: true });
+
+        upper.addEventListener("auxclick", (e) => {
+            if (e.button !== 1) return;
+            e.preventDefault();
+            e.stopPropagation();
+        }, { capture: true });
 
         window.addEventListener("mousemove", (e) => {
             if (!middlePanActive || !canvas?.viewportTransform) return;
@@ -1864,6 +1881,7 @@
             if (!middlePanActive) return;
             middlePanActive = false;
             if (upper) upper.style.cursor = "";
+            refreshDrawingAfterMiddlePan();
         };
 
         window.addEventListener("mouseup", (e) => {
@@ -4151,7 +4169,10 @@
                     shadow: null,
                     selectable: false,
                     evented: false,
-                    globalCompositeOperation: "source-over"
+                    globalCompositeOperation: "source-over",
+                    objectCaching: false,
+                    noScaleCache: true,
+                    dirty: true
                 });
                 resolve(clone);
             });
@@ -4224,31 +4245,38 @@
         });
     }
 
-    function dataUrlToImage(dataUrl) {
-        return new Promise((resolve, reject) => {
-            const img = new Image();
-            img.onload = () => resolve(img);
-            img.onerror = () => reject(new Error("Image decode failed"));
-            img.src = dataUrl;
-        });
-    }
-
     async function updateCleanMaskPreview() {
         if (!canvas) return;
-        const maskDataUrl = await renderCleanMaskDataUrl();
+        const revision = ++cleanMaskPreviewRevision;
+        const target = getCleanMaskTargetObject();
+        const maskDataUrl = target
+            ? await exportCleanMaskForTargetToDataUrl(target)
+            : await renderCleanMaskDataUrl();
+        if (revision !== cleanMaskPreviewRevision) return;
         if (!maskDataUrl) return;
 
         try {
             const previewDataUrl = await tintMaskDataUrl(maskDataUrl);
-            const preview = await loadFabricImageFromDataUrl(previewDataUrl);
+            if (revision !== cleanMaskPreviewRevision) return;
+            let preview = await loadFabricImageFromDataUrl(previewDataUrl);
+            if (revision !== cleanMaskPreviewRevision) return;
+            if (target?.warpCorners && window.fabric?.WarpImage && preview?._element) {
+                preview = new window.fabric.WarpImage(preview._element, {
+                    warpCorners: cloneWarpCorners(target.warpCorners)
+                });
+            }
             preview.set({
-                left: 0,
-                top: 0,
-                scaleX: 1,
-                scaleY: 1,
-                angle: 0,
-                originX: "left",
-                originY: "top",
+                left: target ? target.left : 0,
+                top: target ? target.top : 0,
+                scaleX: target ? target.scaleX : 1,
+                scaleY: target ? target.scaleY : 1,
+                angle: target ? target.angle : 0,
+                flipX: target ? target.flipX : false,
+                flipY: target ? target.flipY : false,
+                skewX: target ? target.skewX : 0,
+                skewY: target ? target.skewY : 0,
+                originX: target ? target.originX : "left",
+                originY: target ? target.originY : "top",
                 name: "Clean mask preview",
                 composerType: CLEAN_MASK_TYPE,
                 selectable: false,
@@ -4284,10 +4312,6 @@
             return null;
         }
 
-        const fullMaskDataUrl = await renderCleanMaskDataUrl();
-        if (!fullMaskDataUrl) return null;
-
-        const fullMask = await dataUrlToImage(fullMaskDataUrl);
         const w = Math.max(1, Math.round(Number(target.width) || target._element?.naturalWidth || 0));
         const h = Math.max(1, Math.round(Number(target.height) || target._element?.naturalHeight || 0));
         if (!w || !h) {
@@ -4300,44 +4324,59 @@
         const scratch = document.createElement("canvas");
         scratch.width = w;
         scratch.height = h;
-        const ctx = scratch.getContext("2d");
-        if (!ctx) {
-            setStatus("Mask canvas unavailable");
-            return null;
+        const maskCanvas = new window.fabric.StaticCanvas(scratch, {
+            width: w,
+            height: h,
+            backgroundColor: "#000000"
+        });
+
+        try {
+            maskCanvas.viewportTransform = [
+                inverse[0],
+                inverse[1],
+                inverse[2],
+                inverse[3],
+                inverse[4] + w / 2,
+                inverse[5] + h / 2
+            ];
+
+            const masks = getCleanMaskPathObjects();
+            if (masks.length === 0) {
+                setStatus("Paint a clean mask first");
+                return null;
+            }
+            const clones = await Promise.all(masks.map(cloneCleanMaskObject));
+            clones.forEach((clone) => maskCanvas.add(clone));
+            maskCanvas.renderAll();
+
+            const ctx = scratch.getContext("2d");
+            if (!ctx) {
+                setStatus("Mask canvas unavailable");
+                return null;
+            }
+
+            const pixels = ctx.getImageData(0, 0, w, h);
+            let hasMask = false;
+            for (let i = 0; i < pixels.data.length; i += 4) {
+                const mask = pixels.data[i];
+                const value = mask > 2 ? 255 : 0;
+                if (value) hasMask = true;
+                pixels.data[i] = value;
+                pixels.data[i + 1] = value;
+                pixels.data[i + 2] = value;
+                pixels.data[i + 3] = 255;
+            }
+            ctx.putImageData(pixels, 0, 0);
+
+            if (!hasMask) {
+                setStatus("Mask does not overlap selected layer");
+                return null;
+            }
+
+            return scratch.toDataURL("image/png");
+        } finally {
+            maskCanvas.dispose();
         }
-
-        ctx.fillStyle = "#000000";
-        ctx.fillRect(0, 0, w, h);
-        ctx.setTransform(
-            inverse[0],
-            inverse[1],
-            inverse[2],
-            inverse[3],
-            inverse[4] + w / 2,
-            inverse[5] + h / 2
-        );
-        ctx.drawImage(fullMask, 0, 0);
-        ctx.setTransform(1, 0, 0, 1, 0, 0);
-
-        const pixels = ctx.getImageData(0, 0, w, h);
-        let hasMask = false;
-        for (let i = 0; i < pixels.data.length; i += 4) {
-            const mask = pixels.data[i];
-            const value = mask > 2 ? 255 : 0;
-            if (value) hasMask = true;
-            pixels.data[i] = value;
-            pixels.data[i + 1] = value;
-            pixels.data[i + 2] = value;
-            pixels.data[i + 3] = 255;
-        }
-        ctx.putImageData(pixels, 0, 0);
-
-        if (!hasMask) {
-            setStatus("Mask does not overlap selected layer");
-            return null;
-        }
-
-        return scratch.toDataURL("image/png");
     }
 
     async function replaceImageLayerWithDataUrl(target, dataUrl) {
