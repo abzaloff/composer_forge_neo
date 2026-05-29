@@ -38,6 +38,7 @@
     let middlePanLastX = 0;
     let middlePanLastY = 0;
     let viewportZoom = 1;
+    let zViewportZoomActive = false;
     const HISTORY_LIMIT = 80;
     const HISTORY_CAPTURE_DELAY_MS = 140;
     let historyUndoStack = [];
@@ -3146,6 +3147,12 @@
             const isTypingTarget = tag === "input" || tag === "textarea" || target?.isContentEditable;
             if (isTypingTarget) return;
 
+            const hasNoModifiers = !e.ctrlKey && !e.metaKey && !e.altKey;
+            if (hasNoModifiers && e.code === "KeyZ") {
+                zViewportZoomActive = true;
+                return;
+            }
+
             if (e.key === "Delete" && removeActiveObject()) {
                 e.preventDefault();
                 e.stopPropagation();
@@ -3189,7 +3196,6 @@
                 return;
             }
 
-            const hasNoModifiers = !e.ctrlKey && !e.metaKey && !e.altKey;
             if (hasNoModifiers && e.code === "KeyB") {
                 e.preventDefault();
                 e.stopPropagation();
@@ -3201,6 +3207,12 @@
                 e.stopPropagation();
                 setDrawingTool("eraser");
             }
+        });
+        document.addEventListener("keyup", (e) => {
+            if (e.code === "KeyZ") zViewportZoomActive = false;
+        });
+        window.addEventListener("blur", () => {
+            zViewportZoomActive = false;
         });
 
         document.__composerDeleteBound = true;
@@ -5053,6 +5065,14 @@
                 if (middlePanActive) {
                     opt.e.preventDefault();
                     opt.e.stopPropagation();
+                    return;
+                }
+                if (zViewportZoomActive && !opt.e.ctrlKey && !opt.e.metaKey && !opt.e.altKey) {
+                    opt.e.preventDefault();
+                    opt.e.stopPropagation();
+                    const currentScale = getViewportZoomFromTransform();
+                    const factor = opt.e.deltaY < 0 ? 1.08 : 0.92;
+                    applyViewportZoomAtPoint(currentScale * factor, opt.e.clientX, opt.e.clientY);
                     return;
                 }
                 const drawToolActive = drawingTool === "brush" || drawingTool === "eraser";
