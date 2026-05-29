@@ -59,6 +59,7 @@
     let cleanMaskPreviewRevision = 0;
     const WARP_CORNER_KEYS = ["tl", "tr", "br", "bl"];
     const CLEAN_MASK_TYPE = "cleanMask";
+    const CLEAN_MASK_CLOSED_FILL = "rgba(255, 48, 48, 0.46)";
 
     function setStatus(text) {
         const el = document.getElementById("composer-status");
@@ -4147,8 +4148,52 @@
         syncLayersPanel();
     }
 
+    function getPathCommandPoint(command) {
+        if (!Array.isArray(command) || command.length < 3) return null;
+        const x = Number(command[command.length - 2]);
+        const y = Number(command[command.length - 1]);
+        if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
+        return { x, y };
+    }
+
+    function getPathPoints(path) {
+        const commands = Array.isArray(path?.path) ? path.path : [];
+        const points = [];
+        commands.forEach((command) => {
+            const point = getPathCommandPoint(command);
+            if (point) points.push(point);
+        });
+        return points;
+    }
+
+    function getPolygonArea(points) {
+        if (!Array.isArray(points) || points.length < 3) return 0;
+        let area = 0;
+        for (let i = 0; i < points.length; i += 1) {
+            const current = points[i];
+            const next = points[(i + 1) % points.length];
+            area += (current.x * next.y) - (next.x * current.y);
+        }
+        return Math.abs(area) / 2;
+    }
+
+    function isCleanMaskPathClosed(path) {
+        const points = getPathPoints(path);
+        if (points.length < 4) return false;
+
+        const first = points[0];
+        const last = points[points.length - 1];
+        const closeDistance = Math.hypot(last.x - first.x, last.y - first.y);
+        const strokeWidth = Math.max(1, Number(path?.strokeWidth) || Number(drawWidth) || 1);
+        const closeThreshold = Math.max(10, strokeWidth * 1.25);
+        if (closeDistance > closeThreshold) return false;
+
+        return getPolygonArea(points) > Math.max(32, strokeWidth * strokeWidth);
+    }
+
     function markCleanMaskPath(path) {
         if (!path || drawingTool !== CLEAN_MASK_TYPE) return;
+        const closed = isCleanMaskPathClosed(path);
         path.set({
             name: "Clean mask",
             composerType: CLEAN_MASK_TYPE,
@@ -4158,6 +4203,8 @@
             hasBorders: false,
             visible: false,
             excludeFromExport: false,
+            fill: closed ? CLEAN_MASK_CLOSED_FILL : null,
+            __composerCleanMaskClosedFill: closed,
             objectCaching: false
         });
         updateCleanMaskPreview();
@@ -4177,7 +4224,7 @@
                 }
                 clone.set({
                     stroke: "#ffffff",
-                    fill: null,
+                    fill: obj.__composerCleanMaskClosedFill || obj.fill ? "#ffffff" : null,
                     opacity: 1,
                     visible: true,
                     shadow: null,
