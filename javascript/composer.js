@@ -1773,6 +1773,14 @@
         canvas.renderAll();
     }
 
+    function resetSceneViewport() {
+        if (!canvas || typeof canvas.setViewportTransform !== "function") return;
+        viewportZoom = 1;
+        canvas.setViewportTransform([displayScale, 0, 0, displayScale, 0, 0]);
+        updateDrawCursorSize();
+        syncGridOverlay();
+    }
+
     function getLayersPanelReserveWidth() {
         const panel = document.getElementById("composer-layers-panel");
         if (!panel || !isElementVisible(panel)) return 0;
@@ -1916,9 +1924,13 @@
         };
     }
 
+    function getSceneCenter() {
+        return { x: sceneWidth / 2, y: sceneHeight / 2 };
+    }
+
     function getSceneFocusCenter() {
         if (!canvas || !window.fabric) {
-            return { x: sceneWidth / 2, y: sceneHeight / 2 };
+            return getSceneCenter();
         }
 
         const fabricUtil = window.fabric?.util;
@@ -2170,9 +2182,8 @@
     function fitBackgroundToCanvas(img) {
         if (!canvas || !img) return;
 
-        const viewport = getSceneViewportSize();
-        const cw = viewport.width;
-        const ch = viewport.height;
+        const cw = sceneWidth;
+        const ch = sceneHeight;
         const iw = img.width || img._element?.naturalWidth || 1;
         const ih = img.height || img._element?.naturalHeight || 1;
 
@@ -2294,7 +2305,8 @@
         const scale = Math.max(scaleX, scaleY);
         const signX = (Number(active.scaleX) || 1) < 0 ? -1 : 1;
         const signY = (Number(active.scaleY) || 1) < 0 ? -1 : 1;
-        const center = new window.fabric.Point(sceneWidth / 2, sceneHeight / 2);
+        const focus = getSceneFocusCenter();
+        const center = new window.fabric.Point(focus.x, focus.y);
 
         active.set({
             scaleX: signX * scale,
@@ -2347,8 +2359,10 @@
 
         img.scale(scale);
         img.set({
-            left: Math.max(20, focus.x - img.getScaledWidth() / 2),
-            top: Math.max(20, focus.y - img.getScaledHeight() / 2)
+            left: Math.round(focus.x),
+            top: Math.round(focus.y),
+            originX: "center",
+            originY: "center"
         });
 
         canvas.add(img);
@@ -5781,6 +5795,7 @@
                 all.forEach(obj => canvas.remove(obj));
                 backgroundObject = null;
                 lastEraserTargets = [];
+                resetSceneViewport();
                 canvas.renderAll();
                 setStatus("Scene cleared");
             });
