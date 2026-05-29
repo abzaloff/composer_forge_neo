@@ -1,5 +1,8 @@
 import base64
 import binascii
+import io
+import sys
+from pathlib import Path
 
 import gradio as gr
 from fastapi import Request
@@ -12,6 +15,7 @@ _REMBG_SESSION = None
 _REMBG_READY = False
 _send_to_composer_tab = ""
 _send_to_composer_info = None
+_LAMA_CLEANER_ROOT = None
 
 
 COMPOSER_HTML = """
@@ -87,6 +91,14 @@ COMPOSER_HTML = """
         <div id="composer-draw-overlay" class="composer-draw-overlay">
             <button id="composer-draw-brush-btn" class="composer-draw-tool-btn" type="button" title="Brush">&#128396;</button>
             <button id="composer-draw-eraser-btn" class="composer-draw-tool-btn" type="button" title="Eraser">&#9003;</button>
+            <button id="composer-clean-mask-btn" class="composer-draw-tool-btn composer-clean-mask-btn" type="button" title="Remove objects with LaMa Cleaner" disabled>
+                <svg class="composer-clean-mask-icon" viewBox="0 0 16 16" aria-hidden="true">
+                    <path d="M4.2 11.8 11.8 4.2"></path>
+                    <path d="M5.2 4.2h5.6l1 1v5.6l-1 1H5.2l-1-1V5.2z"></path>
+                    <path d="M6.3 7.2c.7-.8 2.4-.8 3.1 0 .6.7.2 1.9-1 2.8"></path>
+                    <path d="M8.3 12.6h.1"></path>
+                </svg>
+            </button>
             <input id="composer-draw-color" class="composer-draw-color" type="color" value="#ff0000" title="Brush Color">
 
             <label class="composer-draw-label" for="composer-draw-width">
@@ -298,22 +310,197 @@ def _run_rembg(image_bytes: bytes) -> bytes:
     return remove(image_bytes, session=_REMBG_SESSION)
 
 
+def _get_default_lama_cleaner_roots() -> list[Path]:
+    roots = []
+    try:
+        from modules import paths
+
+        for value in [
+            getattr(paths, "extensions_dir", None),
+            getattr(paths, "extensions_builtin_dir", None),
+        ]:
+            if value:
+                roots.append(Path(value))
+    except Exception:
+        pass
+
+    extension_root = Path(__file__).resolve().parents[1]
+    roots.extend([
+        extension_root.parent,
+        extension_root.parent / "forge-neo-lama-cleaner",
+    ])
+
+    unique = []
+    seen = set()
+    for root in roots:
+        try:
+            resolved = root.resolve()
+        except Exception:
+            resolved = root
+        key = str(resolved).lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        unique.append(root)
+    return unique
+
+
+def _find_lama_cleaner_root(search_roots=None) -> Path | None:
+    roots = [Path(root) for root in (search_roots or _get_default_lama_cleaner_roots())]
+    candidates = []
+    for root in roots:
+        candidates.extend([
+            root,
+            root / "forge-neo-lama-cleaner",
+            root / "lama-cleaner-masked-content",
+        ])
+
+    for candidate in candidates:
+        package_dir = candidate / "lama_cleaner_masked_content"
+        if (
+            package_dir.is_dir()
+            and (package_dir / "inpaint.py").is_file()
+            and (package_dir / "options.py").is_file()
+        ):
+            return candidate
+    return None
+
+
+def _get_lama_cleaner_status(search_roots=None) -> dict:
+    root = _find_lama_cleaner_root(search_roots)
+    if not root:
+        return {
+            "available": False,
+            "error": "LaMa Cleaner extension not found",
+        }
+
+    try:
+        _import_lama_cleaner(root)
+    except Exception as err:
+        return {
+            "available": False,
+            "path": str(root),
+            "error": f"LaMa Cleaner import failed: {err}",
+        }
+
+    return {
+        "available": True,
+        "path": str(root),
+    }
+
+
+def _import_lama_cleaner(root: Path | None = None):
+    global _LAMA_CLEANER_ROOT
+
+    root = Path(root) if root else _find_lama_cleaner_root()
+    if not root:
+        raise RuntimeError("LaMa Cleaner extension not found")
+
+    root_str = str(root)
+    if root_str not in sys.path:
+        sys.path.insert(0, root_str)
+
+    from lama_cleaner_masked_content.inpaint import lamaInpaint
+    from lama_cleaner_masked_content.options import getLamaUpscaler, getResolution
+
+    _LAMA_CLEANER_ROOT = root
+    return lamaInpaint, getLamaUpscaler, getResolution
+
+
+def _get_lama_cleaner_upscaler(getLamaUpscaler) -> str:
+    upscaler = getLamaUpscaler()
+    try:
+        from modules import shared
+
+        available = {item.name for item in getattr(shared, "sd_upscalers", [])}
+        if upscaler in available:
+            return upscaler
+    except Exception:
+        pass
+
+    return "None"
+
+
+def _run_lama_cleaner(
+    image_bytes: bytes,
+    mask_bytes: bytes,
+    *,
+    blur: int = 2,
+    padding: int | None = 90,
+    search_roots=None,
+) -> bytes:
+    try:
+        from PIL import Image
+    except Exception as err:
+        raise RuntimeError(f"Pillow is unavailable: {err}") from err
+
+    lamaInpaint, getLamaUpscaler, getResolution = _import_lama_cleaner(
+        _find_lama_cleaner_root(search_roots)
+    )
+
+    image = Image.open(io.BytesIO(image_bytes)).convert("RGBA")
+    mask = Image.open(io.BytesIO(mask_bytes)).convert("L")
+    if mask.size != image.size:
+        mask = mask.resize(image.size)
+
+    if not mask.getbbox():
+        raise ValueError("Mask is empty")
+
+    result = lamaInpaint(
+        image,
+        mask,
+        0,
+        _get_lama_cleaner_upscaler(getLamaUpscaler),
+        padding,
+        getResolution(),
+        max(0, int(blur)),
+    )
+    output = io.BytesIO()
+    result.convert("RGBA").save(output, format="PNG")
+    return output.getvalue()
+
+
+def _route_exists(app, route_path: str) -> bool:
+    return any(getattr(route, "path", None) == route_path for route in app.router.routes)
+
+
 def on_app_started(_, app):
     route_path = "/forge-composer/remove-bg"
-    if any(getattr(route, "path", None) == route_path for route in app.router.routes):
-        return
+    if not _route_exists(app, route_path):
+        @app.post(route_path)
+        async def composer_remove_bg(request: Request):
+            try:
+                data = await request.json()
+                image_data_url = data.get("image")
+                input_bytes = _parse_data_url(image_data_url)
+                output_bytes = _run_rembg(input_bytes)
+                output_b64 = base64.b64encode(output_bytes).decode("ascii")
+                return JSONResponse({"ok": True, "image": f"data:image/png;base64,{output_b64}"})
+            except Exception as err:
+                return JSONResponse({"ok": False, "error": str(err)}, status_code=400)
 
-    @app.post(route_path)
-    async def composer_remove_bg(request: Request):
-        try:
-            data = await request.json()
-            image_data_url = data.get("image")
-            input_bytes = _parse_data_url(image_data_url)
-            output_bytes = _run_rembg(input_bytes)
-            output_b64 = base64.b64encode(output_bytes).decode("ascii")
-            return JSONResponse({"ok": True, "image": f"data:image/png;base64,{output_b64}"})
-        except Exception as err:
-            return JSONResponse({"ok": False, "error": str(err)}, status_code=400)
+    status_route_path = "/forge-composer/clean-mask/status"
+    if not _route_exists(app, status_route_path):
+        @app.get(status_route_path)
+        async def composer_clean_mask_status():
+            return JSONResponse({"ok": True, **_get_lama_cleaner_status()})
+
+    clean_route_path = "/forge-composer/clean-mask"
+    if not _route_exists(app, clean_route_path):
+        @app.post(clean_route_path)
+        async def composer_clean_mask(request: Request):
+            try:
+                data = await request.json()
+                image_bytes = _parse_data_url(data.get("image"))
+                mask_bytes = _parse_data_url(data.get("mask"))
+                blur = int(data.get("blur", 2))
+                padding_value = data.get("padding", 90)
+                padding = None if padding_value in (None, "", -1) else int(padding_value)
+                output_bytes = _run_lama_cleaner(image_bytes, mask_bytes, blur=blur, padding=padding)
+                output_b64 = base64.b64encode(output_bytes).decode("ascii")
+                return JSONResponse({"ok": True, "image": f"data:image/png;base64,{output_b64}"})
+            except Exception as err:
+                return JSONResponse({"ok": False, "error": str(err)}, status_code=400)
 
 
 script_callbacks.on_ui_tabs(on_ui_tabs)

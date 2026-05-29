@@ -23,6 +23,8 @@
     let currentTextFontStyle = "normal";
     let currentCanvasBackgroundColor = "#000000";
     let removeBgInFlight = false;
+    let cleanMaskAvailable = false;
+    let cleanMaskInFlight = false;
     let drawingTool = null;
     let drawColor = "#ff0000";
     let drawWidth = 25;
@@ -52,7 +54,10 @@
     let pendingExternalImages = [];
     let warpEditObject = null;
     let warpDragCorner = null;
+    let cleanMaskPreviewObject = null;
+    let cleanMaskTargetObject = null;
     const WARP_CORNER_KEYS = ["tl", "tr", "br", "bl"];
+    const CLEAN_MASK_TYPE = "cleanMask";
 
     function setStatus(text) {
         const el = document.getElementById("composer-status");
@@ -1400,8 +1405,9 @@
         const list = document.getElementById("composer-layers-list");
         if (!list || !canvas) return;
 
-        const objects = canvas.getObjects();
-        if (lockedLayerObject && !objects.includes(lockedLayerObject)) {
+        const objects = canvas.getObjects().filter((obj) => obj?.composerType !== CLEAN_MASK_TYPE);
+        const allObjects = canvas.getObjects();
+        if (lockedLayerObject && !allObjects.includes(lockedLayerObject)) {
             clearLayerSelectionLock();
         }
         const selected = getSelectedObjectsSet();
@@ -1417,11 +1423,12 @@
 
         for (let idx = objects.length - 1; idx >= 0; idx -= 1) {
             const obj = objects[idx];
+            const layerIndex = allObjects.indexOf(obj);
             const visualOrder = objects.length - idx;
             const card = document.createElement("button");
             card.type = "button";
             card.className = "composer-layer-card";
-            card.dataset.layerIndex = String(idx);
+            card.dataset.layerIndex = String(layerIndex);
             card.draggable = true;
             card.title = `${visualOrder}. ${getLayerDisplayName(obj)}`;
             if (selected.has(obj)) {
@@ -3382,6 +3389,7 @@
         const softnessVal = document.getElementById("composer-draw-softness-value");
         const brushBtn = document.getElementById("composer-draw-brush-btn");
         const eraserBtn = document.getElementById("composer-draw-eraser-btn");
+        const cleanMaskBtn = document.getElementById("composer-clean-mask-btn");
 
         if (widthVal) widthVal.textContent = String(drawWidth);
         if (opacityVal) opacityVal.textContent = String(drawOpacity);
@@ -3389,8 +3397,15 @@
 
         const brushActive = drawingTool === "brush" && !!canvas?.isDrawingMode;
         const eraserActive = drawingTool === "eraser" && (!!canvas?.isDrawingMode || eraserFallbackActive);
+        const cleanMaskActive = drawingTool === CLEAN_MASK_TYPE && !!canvas?.isDrawingMode;
+        const cleanMaskCanRun = cleanMaskAvailable && (!!getCleanMaskTargetObject() || cleanMaskActive);
         if (brushBtn) brushBtn.classList.toggle("is-active", brushActive);
         if (eraserBtn) eraserBtn.classList.toggle("is-active", eraserActive);
+        if (cleanMaskBtn) {
+            cleanMaskBtn.classList.toggle("is-active", cleanMaskActive);
+            cleanMaskBtn.disabled = !cleanMaskCanRun || cleanMaskInFlight;
+            cleanMaskBtn.classList.toggle("is-disabled", !cleanMaskCanRun || cleanMaskInFlight);
+        }
     }
 
     function setDrawWidth(nextWidth) {
@@ -3458,6 +3473,7 @@
         if (!drawCursorEl) return;
         drawCursorEl.classList.toggle("is-eraser", tool === "eraser");
         drawCursorEl.classList.toggle("is-brush", tool === "brush");
+        drawCursorEl.classList.toggle("is-clean-mask", tool === CLEAN_MASK_TYPE);
     }
 
     function applyDrawingBrush() {
@@ -3504,6 +3520,14 @@
 
             brush = new window.fabric.EraserBrush(canvas);
             brush.width = width;
+        } else if (drawingTool === CLEAN_MASK_TYPE) {
+            stopEraserFallback();
+            restoreEraserScope();
+            brush = new window.fabric.PencilBrush(canvas);
+            brush.width = width;
+            brush.color = "rgba(255, 48, 48, 0.46)";
+            brush.globalCompositeOperation = "source-over";
+            brush.shadow = null;
         } else {
             stopEraserFallback();
             restoreEraserScope();
@@ -3839,6 +3863,7 @@
     function disableDrawingMode(silent = false) {
         if (!drawingTool && !canvas?.isDrawingMode) return;
         drawingTool = null;
+        cleanMaskTargetObject = null;
         lastEraserTargets = [];
         stopEraserFallback();
         restoreEraserScope();
@@ -3864,21 +3889,38 @@
         resetFabricDrawingState();
 
         drawingTool = tool;
+        if (tool === CLEAN_MASK_TYPE) {
+            const target = getCleanMaskTargetObject();
+            if (!target) {
+                drawingTool = null;
+                setStatus("Select one image layer to clean");
+                updateDrawingControlsState();
+                return;
+            }
+            cleanMaskTargetObject = target;
+        }
         const ok = applyDrawingBrush();
         if (!ok) return;
-        setStatus(tool === "eraser" ? "Eraser mode on" : "Brush mode on");
+        if (tool === "eraser") {
+            setStatus("Eraser mode on");
+        } else if (tool === CLEAN_MASK_TYPE) {
+            setStatus("Clean selected layer: paint object, then click the remove icon again");
+        } else {
+            setStatus("Brush mode on");
+        }
     }
 
     function bindDrawingControls() {
         const overlay = document.getElementById("composer-draw-overlay");
         const brushBtn = document.getElementById("composer-draw-brush-btn");
         const eraserBtn = document.getElementById("composer-draw-eraser-btn");
+        const cleanMaskBtn = document.getElementById("composer-clean-mask-btn");
         const colorInput = document.getElementById("composer-draw-color");
         const widthInput = document.getElementById("composer-draw-width");
         const opacityInput = document.getElementById("composer-draw-opacity");
         const softnessInput = document.getElementById("composer-draw-softness");
 
-        if (!overlay || !brushBtn || !eraserBtn || !colorInput || !widthInput || !opacityInput || !softnessInput) {
+        if (!overlay || !brushBtn || !eraserBtn || !cleanMaskBtn || !colorInput || !widthInput || !opacityInput || !softnessInput) {
             return;
         }
         if (overlay.dataset.bound === "1") return;
@@ -3899,6 +3941,21 @@
 
         brushBtn.addEventListener("click", () => setDrawingTool("brush"));
         eraserBtn.addEventListener("click", () => setDrawingTool("eraser"));
+        cleanMaskBtn.addEventListener("click", () => {
+            if (!cleanMaskAvailable) {
+                setStatus("LaMa Cleaner extension not found");
+                return;
+            }
+            if (drawingTool === CLEAN_MASK_TYPE) {
+                cleanSelectedLayerByMask();
+                return;
+            }
+            if (!getCleanMaskTargetObject()) {
+                setStatus("Select one image layer to clean");
+                return;
+            }
+            setDrawingTool(CLEAN_MASK_TYPE);
+        });
 
         colorInput.addEventListener("input", () => {
             const normalized = normalizeHexColor(colorInput.value);
@@ -4007,6 +4064,489 @@
                 resolve(img);
             });
         });
+    }
+
+    function getCleanMaskObjects() {
+        if (!canvas) return [];
+        return canvas.getObjects().filter((obj) => obj?.composerType === CLEAN_MASK_TYPE);
+    }
+
+    function getCleanMaskTargetObject() {
+        if (!canvas) return null;
+        if (
+            cleanMaskTargetObject
+            && canvas.getObjects().includes(cleanMaskTargetObject)
+            && isImageObject(cleanMaskTargetObject)
+        ) {
+            return cleanMaskTargetObject;
+        }
+
+        const active = canvas.getActiveObject();
+        if (!active || active.type === "activeSelection") return null;
+        if (!isImageObject(active)) return null;
+        return active;
+    }
+
+    function getCleanMaskPathObjects() {
+        return getCleanMaskObjects().filter((obj) => !obj.__composerCleanMaskPreview && obj.type === "path");
+    }
+
+    function withCleanMasksHidden(callback) {
+        const masks = getCleanMaskObjects();
+        const previous = masks.map((obj) => ({ obj, visible: obj.visible }));
+        masks.forEach((obj) => {
+            obj.visible = false;
+        });
+        try {
+            return callback();
+        } finally {
+            previous.forEach(({ obj, visible }) => {
+                obj.visible = visible;
+            });
+            canvas?.requestRenderAll();
+        }
+    }
+
+    function clearCleanMaskObjects() {
+        if (!canvas) return;
+        getCleanMaskObjects().forEach((obj) => canvas.remove(obj));
+        cleanMaskPreviewObject = null;
+        canvas.requestRenderAll();
+        syncLayersPanel();
+    }
+
+    function markCleanMaskPath(path) {
+        if (!path || drawingTool !== CLEAN_MASK_TYPE) return;
+        path.set({
+            name: "Clean mask",
+            composerType: CLEAN_MASK_TYPE,
+            selectable: false,
+            evented: false,
+            hasControls: false,
+            hasBorders: false,
+            visible: false,
+            excludeFromExport: false,
+            objectCaching: false
+        });
+        updateCleanMaskPreview();
+        syncLayersPanel();
+    }
+
+    function cloneCleanMaskObject(obj) {
+        return new Promise((resolve, reject) => {
+            if (!obj || typeof obj.clone !== "function") {
+                reject(new Error("Mask object cannot be cloned"));
+                return;
+            }
+            obj.clone((clone) => {
+                if (!clone) {
+                    reject(new Error("Mask clone failed"));
+                    return;
+                }
+                clone.set({
+                    stroke: "#ffffff",
+                    fill: null,
+                    opacity: 1,
+                    visible: true,
+                    shadow: null,
+                    selectable: false,
+                    evented: false,
+                    globalCompositeOperation: "source-over"
+                });
+                resolve(clone);
+            });
+        });
+    }
+
+    async function renderCleanMaskDataUrl() {
+        if (!canvas || !window.fabric) {
+            setStatus("Canvas not ready");
+            return null;
+        }
+
+        const masks = getCleanMaskPathObjects();
+        if (masks.length === 0) {
+            setStatus("Paint a clean mask first");
+            return null;
+        }
+
+        const maskCanvasEl = document.createElement("canvas");
+        maskCanvasEl.width = sceneWidth;
+        maskCanvasEl.height = sceneHeight;
+        const maskCanvas = new window.fabric.StaticCanvas(maskCanvasEl, {
+            width: sceneWidth,
+            height: sceneHeight,
+            backgroundColor: "#000000"
+        });
+
+        try {
+            const clones = await Promise.all(masks.map(cloneCleanMaskObject));
+            clones.forEach((clone) => maskCanvas.add(clone));
+            maskCanvas.renderAll();
+            return maskCanvas.toDataURL({ format: "png", multiplier: 1 });
+        } catch (err) {
+            console.error(err);
+            setStatus(`Mask export failed: ${err?.message || err}`);
+            return null;
+        } finally {
+            maskCanvas.dispose();
+        }
+    }
+
+    function tintMaskDataUrl(maskDataUrl) {
+        return new Promise((resolve, reject) => {
+            const img = new Image();
+            img.onload = () => {
+                const w = img.naturalWidth || img.width;
+                const h = img.naturalHeight || img.height;
+                const scratch = document.createElement("canvas");
+                scratch.width = w;
+                scratch.height = h;
+                const ctx = scratch.getContext("2d");
+                if (!ctx) {
+                    reject(new Error("Preview canvas unavailable"));
+                    return;
+                }
+                ctx.drawImage(img, 0, 0);
+                const pixels = ctx.getImageData(0, 0, w, h);
+                for (let i = 0; i < pixels.data.length; i += 4) {
+                    const mask = pixels.data[i];
+                    pixels.data[i] = 255;
+                    pixels.data[i + 1] = 48;
+                    pixels.data[i + 2] = 48;
+                    pixels.data[i + 3] = Math.round(mask * 0.46);
+                }
+                ctx.putImageData(pixels, 0, 0);
+                resolve(scratch.toDataURL("image/png"));
+            };
+            img.onerror = () => reject(new Error("Mask preview decode failed"));
+            img.src = maskDataUrl;
+        });
+    }
+
+    function dataUrlToImage(dataUrl) {
+        return new Promise((resolve, reject) => {
+            const img = new Image();
+            img.onload = () => resolve(img);
+            img.onerror = () => reject(new Error("Image decode failed"));
+            img.src = dataUrl;
+        });
+    }
+
+    async function updateCleanMaskPreview() {
+        if (!canvas) return;
+        const maskDataUrl = await renderCleanMaskDataUrl();
+        if (!maskDataUrl) return;
+
+        try {
+            const previewDataUrl = await tintMaskDataUrl(maskDataUrl);
+            const preview = await loadFabricImageFromDataUrl(previewDataUrl);
+            preview.set({
+                left: 0,
+                top: 0,
+                scaleX: 1,
+                scaleY: 1,
+                angle: 0,
+                originX: "left",
+                originY: "top",
+                name: "Clean mask preview",
+                composerType: CLEAN_MASK_TYPE,
+                selectable: false,
+                evented: false,
+                hasControls: false,
+                hasBorders: false,
+                objectCaching: false
+            });
+            preview.__composerCleanMaskPreview = true;
+
+            if (cleanMaskPreviewObject && canvas.getObjects().includes(cleanMaskPreviewObject)) {
+                canvas.remove(cleanMaskPreviewObject);
+            }
+            cleanMaskPreviewObject = preview;
+            canvas.add(preview);
+            if (typeof preview.bringToFront === "function") {
+                preview.bringToFront();
+            }
+            canvas.requestRenderAll();
+            syncLayersPanel();
+        } catch (err) {
+            console.warn("[Composer] clean mask preview failed", err);
+        }
+    }
+
+    async function exportCleanMaskToDataUrl() {
+        return renderCleanMaskDataUrl();
+    }
+
+    async function exportCleanMaskForTargetToDataUrl(target) {
+        if (!target || !window.fabric?.util) {
+            setStatus("Select one image layer to clean");
+            return null;
+        }
+
+        const fullMaskDataUrl = await renderCleanMaskDataUrl();
+        if (!fullMaskDataUrl) return null;
+
+        const fullMask = await dataUrlToImage(fullMaskDataUrl);
+        const w = Math.max(1, Math.round(Number(target.width) || target._element?.naturalWidth || 0));
+        const h = Math.max(1, Math.round(Number(target.height) || target._element?.naturalHeight || 0));
+        if (!w || !h) {
+            setStatus("Selected layer has invalid size");
+            return null;
+        }
+
+        const matrix = target.calcTransformMatrix();
+        const inverse = window.fabric.util.invertTransform(matrix);
+        const scratch = document.createElement("canvas");
+        scratch.width = w;
+        scratch.height = h;
+        const ctx = scratch.getContext("2d");
+        if (!ctx) {
+            setStatus("Mask canvas unavailable");
+            return null;
+        }
+
+        ctx.fillStyle = "#000000";
+        ctx.fillRect(0, 0, w, h);
+        ctx.setTransform(
+            inverse[0],
+            inverse[1],
+            inverse[2],
+            inverse[3],
+            inverse[4] + w / 2,
+            inverse[5] + h / 2
+        );
+        ctx.drawImage(fullMask, 0, 0);
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
+
+        const pixels = ctx.getImageData(0, 0, w, h);
+        let hasMask = false;
+        for (let i = 0; i < pixels.data.length; i += 4) {
+            const mask = pixels.data[i];
+            const value = mask > 2 ? 255 : 0;
+            if (value) hasMask = true;
+            pixels.data[i] = value;
+            pixels.data[i + 1] = value;
+            pixels.data[i + 2] = value;
+            pixels.data[i + 3] = 255;
+        }
+        ctx.putImageData(pixels, 0, 0);
+
+        if (!hasMask) {
+            setStatus("Mask does not overlap selected layer");
+            return null;
+        }
+
+        return scratch.toDataURL("image/png");
+    }
+
+    async function replaceImageLayerWithDataUrl(target, dataUrl) {
+        const nextImage = await loadFabricImageFromDataUrl(dataUrl);
+        const activeWarpCorners = target.warpCorners ? cloneWarpCorners(target.warpCorners) : null;
+        const activeWasWarpEditing = target === warpEditObject && target.__composerWarpEditing;
+        const prevInteraction = target.__composerWarpPrevInteraction || null;
+        let replacement = nextImage;
+        if (activeWarpCorners && window.fabric?.WarpImage && nextImage?._element) {
+            replacement = new window.fabric.WarpImage(nextImage._element, {
+                warpCorners: activeWarpCorners
+            });
+        }
+
+        const objects = canvas.getObjects();
+        const prevIndex = objects.indexOf(target);
+        const sourceW = target.width || target._element?.naturalWidth || replacement.width || 1;
+        const sourceH = target.height || target._element?.naturalHeight || replacement.height || 1;
+
+        replacement.set({
+            left: target.left,
+            top: target.top,
+            scaleX: target.scaleX,
+            scaleY: target.scaleY,
+            angle: target.angle,
+            flipX: target.flipX,
+            flipY: target.flipY,
+            skewX: target.skewX,
+            skewY: target.skewY,
+            originX: target.originX,
+            originY: target.originY,
+            opacity: target.opacity,
+            selectable: target.selectable,
+            evented: target.evented,
+            hasControls: activeWasWarpEditing ? (prevInteraction?.hasControls ?? true) : target.hasControls,
+            hasBorders: activeWasWarpEditing ? (prevInteraction?.hasBorders ?? true) : target.hasBorders,
+            lockMovementX: activeWasWarpEditing ? (prevInteraction?.lockMovementX ?? false) : target.lockMovementX,
+            lockMovementY: activeWasWarpEditing ? (prevInteraction?.lockMovementY ?? false) : target.lockMovementY,
+            lockRotation: target.lockRotation,
+            lockScalingX: target.lockScalingX,
+            lockScalingY: target.lockScalingY,
+            hoverCursor: activeWasWarpEditing ? (prevInteraction?.hoverCursor ?? null) : target.hoverCursor,
+            moveCursor: activeWasWarpEditing ? (prevInteraction?.moveCursor ?? null) : target.moveCursor,
+            name: target.name || "Cleaned layer",
+            composerType: target.composerType || "object",
+            warpCorners: activeWarpCorners || undefined,
+            cornerStyle: "circle",
+            transparentCorners: false,
+            padding: 4,
+            objectCaching: false
+        });
+
+        if (replacement.width && replacement.height && sourceW && sourceH) {
+            replacement.set({
+                scaleX: target.scaleX * (sourceW / replacement.width),
+                scaleY: target.scaleY * (sourceH / replacement.height)
+            });
+        }
+
+        canvas.remove(target);
+        if (target === warpEditObject) {
+            warpEditObject = null;
+            warpDragCorner = null;
+            clearWarpOverlay();
+        }
+        if (target === backgroundObject) {
+            backgroundObject = null;
+        }
+        canvas.add(replacement);
+        if (prevIndex >= 0) {
+            canvas.moveTo(replacement, prevIndex);
+        }
+        if (target === backgroundObject || replacement.composerType === "background") {
+            backgroundObject = replacement;
+        }
+        replacement.setCoords();
+        canvas.setActiveObject(replacement);
+        if (activeWasWarpEditing && activeWarpCorners && replacement.type === "warpImage") {
+            setWarpControls(replacement);
+            warpEditObject = replacement;
+            syncWarpButtonState();
+        } else {
+            clearWarpControls(replacement);
+            syncWarpButtonState();
+        }
+        replacement.dirty = true;
+        canvas.requestRenderAll();
+        syncLayersPanel();
+        return replacement;
+    }
+
+    async function replaceSceneWithCleanedCanvas(dataUrl) {
+        const nextImage = await loadFabricImageFromDataUrl(dataUrl);
+        const realW = nextImage.width || nextImage._element?.naturalWidth || sceneWidth;
+        const realH = nextImage.height || nextImage._element?.naturalHeight || sceneHeight;
+
+        canvas.getObjects().slice().forEach((obj) => canvas.remove(obj));
+        backgroundObject = nextImage;
+        nextImage.set({
+            left: 0,
+            top: 0,
+            scaleX: sceneWidth / Math.max(1, realW),
+            scaleY: sceneHeight / Math.max(1, realH),
+            angle: 0,
+            originX: "left",
+            originY: "top",
+            name: "Cleaned canvas",
+            composerType: "background",
+            selectable: true,
+            evented: true,
+            cornerStyle: "circle",
+            transparentCorners: false,
+            padding: 4,
+            objectCaching: false
+        });
+        canvas.add(nextImage);
+        canvas.setActiveObject(nextImage);
+        nextImage.setCoords();
+        canvas.requestRenderAll();
+        syncLayersPanel();
+    }
+
+    async function refreshCleanMaskAvailability() {
+        try {
+            const response = await fetch("/forge-composer/clean-mask/status");
+            const payload = await response.json();
+            cleanMaskAvailable = !!(response.ok && payload?.ok && payload?.available);
+            const btn = document.getElementById("composer-clean-mask-btn");
+            if (btn) {
+                btn.title = cleanMaskAvailable
+                    ? "Select an image layer, paint mask, then click again to clean that layer"
+                    : (payload?.error || "LaMa Cleaner extension not found");
+            }
+        } catch (err) {
+            cleanMaskAvailable = false;
+            console.warn("[Composer] clean mask status failed", err);
+        } finally {
+            updateDrawingControlsState();
+        }
+    }
+
+    async function cleanSelectedLayerByMask() {
+        if (!canvas) {
+            setStatus("Canvas not ready");
+            return;
+        }
+        if (!cleanMaskAvailable) {
+            setStatus("LaMa Cleaner extension not found");
+            return;
+        }
+        if (cleanMaskInFlight) {
+            setStatus("Clean mask is already running");
+            return;
+        }
+
+        const target = getCleanMaskTargetObject();
+        if (!target) {
+            setStatus("Select one image layer to clean");
+            return;
+        }
+        if (target.type === "activeSelection" || !isImageObject(target)) {
+            setStatus("Clean mask works only on one image layer");
+            return;
+        }
+
+        const imageDataUrl = getImageDataUrlFromObject(target);
+        if (!imageDataUrl) {
+            setStatus("Could not read selected layer image");
+            return;
+        }
+
+        const maskDataUrl = await exportCleanMaskForTargetToDataUrl(target);
+        if (!maskDataUrl) return;
+
+        cleanMaskInFlight = true;
+        updateDrawingControlsState();
+        setStatus("Cleaning selected layer with LaMa Cleaner...");
+
+        try {
+            flushHistoryCaptureNow();
+            const response = await fetch("/forge-composer/clean-mask", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    image: imageDataUrl,
+                    mask: maskDataUrl,
+                    blur: 2,
+                    padding: 90
+                })
+            });
+
+            const payload = await response.json();
+            if (!response.ok || !payload?.ok || !payload?.image) {
+                const errText = payload?.error || `HTTP ${response.status}`;
+                throw new Error(errText);
+            }
+
+            disableDrawingMode(true);
+            clearCleanMaskObjects();
+            await replaceImageLayerWithDataUrl(target, payload.image);
+            scheduleHistoryCapture();
+            setStatus("Selected layer cleaned");
+        } catch (err) {
+            console.error(err);
+            setStatus(`Clean mask failed: ${err?.message || "Unknown error"}`);
+        } finally {
+            cleanMaskInFlight = false;
+            updateDrawingControlsState();
+        }
     }
 
     async function removeBackgroundFromActiveImage() {
@@ -4302,8 +4842,15 @@
         const prevWrapperWidth = wrapper?.style.width || "";
         const prevWrapperHeight = wrapper?.style.height || "";
         const prevWrapperMargin = wrapper?.style.margin || "";
+        const cleanMaskVisibility = getCleanMaskObjects().map((obj) => ({
+            obj,
+            visible: obj.visible
+        }));
 
         try {
+            cleanMaskVisibility.forEach(({ obj }) => {
+                obj.visible = false;
+            });
             if (prevActive) {
                 canvas.discardActiveObject();
             }
@@ -4358,6 +4905,9 @@
                 wrapper.style.height = prevWrapperHeight;
                 wrapper.style.margin = prevWrapperMargin;
             }
+            cleanMaskVisibility.forEach(({ obj, visible }) => {
+                obj.visible = visible;
+            });
 
             if (prevSelectionItems && prevSelectionItems.length > 0 && window.fabric?.ActiveSelection) {
                 try {
@@ -5075,7 +5625,7 @@
                     applyViewportZoomAtPoint(currentScale * factor, opt.e.clientX, opt.e.clientY);
                     return;
                 }
-                const drawToolActive = drawingTool === "brush" || drawingTool === "eraser";
+                const drawToolActive = drawingTool === "brush" || drawingTool === "eraser" || drawingTool === CLEAN_MASK_TYPE;
                 if (opt.e.altKey && drawToolActive) {
                     opt.e.preventDefault();
                     opt.e.stopPropagation();
@@ -5116,7 +5666,7 @@
                 if (middlePanActive) return;
                 if (opt?.e?.button !== 0) return;
                 if (lockedLayerObject) return; // panel lock already handles targeting
-                if (drawingTool === "brush" || drawingTool === "eraser") return;
+                if (drawingTool === "brush" || drawingTool === "eraser" || drawingTool === CLEAN_MASK_TYPE) return;
 
                 const active = canvas.getActiveObject();
                 const target = opt?.target;
@@ -5130,9 +5680,11 @@
             });
             canvas.on("selection:created", () => {
                 syncLayerLockFromCanvasSelection();
+                updateDrawingControlsState();
             });
             canvas.on("selection:updated", () => {
                 syncLayerLockFromCanvasSelection();
+                updateDrawingControlsState();
             });
 
             const ok = bindUploadButtons();
@@ -5158,6 +5710,7 @@
             bindLayersPanelTracking();
             resetHistoryToCurrentScene();
             setGridDivisions(1, true);
+            refreshCleanMaskAvailability();
             flushPendingExternalImages();
 
             const clearBtn = document.getElementById("composer-clear-btn");
@@ -5267,10 +5820,14 @@
                 disableWarpEdit(true);
                 syncTextStyleControlsFromSelection();
                 syncObjectOpacityControlFromSelection();
+                updateDrawingControlsState();
                 if (drawingTool === "eraser" && canvas.isDrawingMode && !eraserFallbackActive) {
                     disableDrawingMode(true);
                     setStatus("Select object to erase");
                 }
+            });
+            canvas.on("path:created", (opt) => {
+                markCleanMaskPath(opt?.path);
             });
             canvas.on("after:render", syncGridOverlay);
 

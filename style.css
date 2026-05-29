@@ -592,6 +592,23 @@
     box-shadow: 0 0 0 1px rgba(255,140,0,0.25) inset;
 }
 
+.composer-draw-tool-btn.is-disabled,
+.composer-draw-tool-btn:disabled {
+    opacity: 0.45;
+    cursor: default;
+}
+
+#forge-composer-root .composer-clean-mask-icon {
+    display: block;
+    width: 20px;
+    height: 20px;
+    stroke: currentColor;
+    fill: none;
+    stroke-width: 1.6;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+
 .composer-draw-color {
     width: 28px;
     height: 22px;
@@ -632,6 +649,11 @@
 .composer-draw-cursor.is-eraser {
     border-color: rgba(111, 209, 255, 0.95);
     border-style: dashed;
+}
+
+.composer-draw-cursor.is-clean-mask {
+    border-color: rgba(255, 70, 70, 0.95);
+    background: rgba(255, 48, 48, 0.18);
 }
 
 .composer-stage-wrap.composer-drag-over {
