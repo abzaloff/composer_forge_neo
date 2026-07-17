@@ -83,8 +83,9 @@ COMPOSER_HTML = """
 
         <button id="composer-send-img2img-btn" class="composer-btn composer-btn-primary" type="button">Send to Img2Img</button>
         <button id="composer-send-inpaint-btn" class="composer-btn composer-btn-primary" type="button">Send to Inpaint</button>
-        <button id="composer-send-controlnet-t2i-btn" class="composer-btn composer-btn-primary" type="button">Send to ControlNetT2I</button>
-        <button id="composer-send-controlnet-i2i-btn" class="composer-btn composer-btn-primary" type="button">Send to ControlNetI2I</button>
+        <button id="composer-send-inpaint-upload-btn" class="composer-btn composer-btn-primary" type="button">Send to Inpaint upload</button>
+        <button id="composer-send-controlnet-t2i-btn" class="composer-btn composer-btn-primary" type="button">Send to CNT2I</button>
+        <button id="composer-send-controlnet-i2i-btn" class="composer-btn composer-btn-primary" type="button">Send to CNI2I</button>
     </div>
 
     <div class="composer-secondary-toolbar" aria-label="Composer secondary tools">

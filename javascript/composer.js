@@ -5769,6 +5769,22 @@
                 '#img2img_inpaint_tab input[type="file"]',
                 '#img2img input[type="file"]'
             ];
+        } else if (targetMode === "inpaint_upload") {
+            const img2imgTab = findTabButton(/\bimg2img\b/i);
+            if (img2imgTab) {
+                img2imgTab.click();
+                await new Promise((r) => setTimeout(r, 250));
+            }
+
+            tabButton = findTabButton(/\binpaint\s*upload\b/i);
+            inputSelectorCandidates = [
+                '#img2img_inpaint_upload input[type="file"]',
+                '#img2img_inpaint_upload_tab input[type="file"]',
+                '#inpaint_upload input[type="file"]',
+                '[id*="inpaint"][id*="upload"] input[type="file"]',
+                '[id*="img2img"][id*="inpaint"][id*="upload"] input[type="file"]',
+                '#img2img input[type="file"]'
+            ];
         } else if (targetMode === "controlnet_i2i") {
             const controlNetScopes = ['#img2img', '#img2img_tab', '[id*="img2img"]'];
             const img2imgTab = findTabButton(/\bimg2img\b/i);
@@ -6084,6 +6100,7 @@
             const exportLayerBtn = document.getElementById("composer-export-layer-btn");
             const sendImg2ImgBtn = document.getElementById("composer-send-img2img-btn");
             const sendInpaintBtn = document.getElementById("composer-send-inpaint-btn");
+            const sendInpaintUploadBtn = document.getElementById("composer-send-inpaint-upload-btn");
             const sendControlNetT2IBtn = document.getElementById("composer-send-controlnet-t2i-btn");
             const sendControlNetI2IBtn = document.getElementById("composer-send-controlnet-i2i-btn");
 
@@ -6214,6 +6231,7 @@
 
             sendImg2ImgBtn?.addEventListener("click", () => sendToForgeTarget("img2img"));
             sendInpaintBtn?.addEventListener("click", () => sendToForgeTarget("inpaint"));
+            sendInpaintUploadBtn?.addEventListener("click", () => sendToForgeTarget("inpaint_upload"));
             sendControlNetT2IBtn?.addEventListener("click", () => sendToForgeTarget("controlnet_t2i"));
             sendControlNetI2IBtn?.addEventListener("click", () => sendToForgeTarget("controlnet_i2i"));
 
