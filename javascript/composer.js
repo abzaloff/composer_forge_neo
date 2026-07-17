@@ -12,6 +12,8 @@
     const MIN_SCENE_SIZE = 64;
     const MAX_SCENE_SIZE = 3072;
     const SCENE_STEP = 64;
+    const MOSAIC_TILE_SIZE = 32;
+    const MOSAIC_TYPE = "mosaicOutpaint";
     let sceneWidth = 1024;
     let sceneHeight = 1024;
     let stageHeight = STAGE_DEFAULT_HEIGHT;
@@ -2383,6 +2385,197 @@
         canvas.requestRenderAll();
         scheduleHistoryCapture();
         setStatus(`Canvas fitted to image: ${nextWidth} x ${nextHeight}`);
+    }
+
+    function getObjectLocalPoint(obj, sceneX, sceneY) {
+        if (!obj || !window.fabric?.util) return null;
+        const matrix = typeof obj.calcTransformMatrix === "function" ? obj.calcTransformMatrix() : null;
+        if (!matrix) return null;
+        const inverted = window.fabric.util.invertTransform(matrix);
+        return window.fabric.util.transformPoint(new window.fabric.Point(sceneX, sceneY), inverted);
+    }
+
+    function removeMosaicOutpaintLayers() {
+        if (!canvas) return 0;
+        const layers = canvas.getObjects().filter((obj) => obj?.composerType === MOSAIC_TYPE);
+        layers.forEach((obj) => canvas.remove(obj));
+        return layers.length;
+    }
+
+    function renderObjectSourceCanvas(obj) {
+        if (!obj) return null;
+
+        if (typeof obj.toCanvasElement === "function") {
+            try {
+                const rendered = obj.toCanvasElement({
+                    multiplier: 1,
+                    withoutTransform: true
+                });
+                if (rendered?.width && rendered?.height) return rendered;
+            } catch (err) {
+                console.warn("[Composer] mosaic object render failed", err);
+            }
+        }
+
+        const sourceEl = obj._element || obj._originalElement || null;
+        const size = getImageIntrinsicSize(obj);
+        if (!sourceEl || !size.width || !size.height) return null;
+
+        const fallback = document.createElement("canvas");
+        fallback.width = size.width;
+        fallback.height = size.height;
+        const fallbackCtx = fallback.getContext("2d");
+        if (!fallbackCtx) return null;
+        fallbackCtx.drawImage(sourceEl, 0, 0, size.width, size.height);
+        return fallback;
+    }
+
+    function buildMosaicOutpaintCanvas(sourceObj, tileSize = MOSAIC_TILE_SIZE) {
+        const sourceCanvas = renderObjectSourceCanvas(sourceObj);
+        if (!sourceCanvas) return null;
+
+        const size = {
+            width: sourceCanvas.width,
+            height: sourceCanvas.height
+        };
+        const sourceCtx = sourceCanvas.getContext("2d", { willReadFrequently: true });
+        if (!sourceCtx) return null;
+
+        const sourcePixels = sourceCtx.getImageData(0, 0, size.width, size.height).data;
+        const out = document.createElement("canvas");
+        out.width = sceneWidth;
+        out.height = sceneHeight;
+        const outCtx = out.getContext("2d");
+        if (!outCtx) return null;
+
+        const objectWidth = sourceObj.width || size.width;
+        const objectHeight = sourceObj.height || size.height;
+        const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
+        const mirrorDistance = (distance, extent) => {
+            const max = Math.max(1, extent - 1);
+            const period = Math.max(1, max * 2);
+            const wrapped = ((distance % period) + period) % period;
+            return wrapped <= max ? wrapped : period - wrapped;
+        };
+        const sampleOutpaintCoordinate = (value, extent) => {
+            if (value < 0) return mirrorDistance(-value, extent);
+            if (value >= extent) return Math.max(0, extent - 1 - mirrorDistance(value - extent, extent));
+            return value;
+        };
+        const objectToPixelX = (value) => clamp(Math.round((value / Math.max(1, objectWidth - 1)) * (size.width - 1)), 0, size.width - 1);
+        const objectToPixelY = (value) => clamp(Math.round((value / Math.max(1, objectHeight - 1)) * (size.height - 1)), 0, size.height - 1);
+        const getPixelIndex = (px, py) => (py * size.width + px) * 4;
+        const getAlphaAtObjectPoint = (objectX, objectY) => {
+            if (objectX < 0 || objectX >= objectWidth || objectY < 0 || objectY >= objectHeight) return 0;
+            const idx = getPixelIndex(objectToPixelX(objectX), objectToPixelY(objectY));
+            return sourcePixels[idx + 3] || 0;
+        };
+        const findOpaqueSampleIndex = (px, py) => {
+            const startIdx = getPixelIndex(px, py);
+            if ((sourcePixels[startIdx + 3] || 0) > 8) return startIdx;
+
+            const maxRadius = Math.min(128, Math.max(size.width, size.height));
+            for (let radius = 4; radius <= maxRadius; radius += 4) {
+                for (let dy = -radius; dy <= radius; dy += 4) {
+                    for (let dx = -radius; dx <= radius; dx += 4) {
+                        if (Math.abs(dx) !== radius && Math.abs(dy) !== radius) continue;
+                        const sx = clamp(px + dx, 0, size.width - 1);
+                        const sy = clamp(py + dy, 0, size.height - 1);
+                        const idx = getPixelIndex(sx, sy);
+                        if ((sourcePixels[idx + 3] || 0) > 8) return idx;
+                    }
+                }
+            }
+
+            return startIdx;
+        };
+        const bg = normalizeHexColor(currentCanvasBackgroundColor) || "#000000";
+        const bgR = parseInt(bg.slice(1, 3), 16);
+        const bgG = parseInt(bg.slice(3, 5), 16);
+        const bgB = parseInt(bg.slice(5, 7), 16);
+
+        for (let y = 0; y < sceneHeight; y += tileSize) {
+            const tileH = Math.min(tileSize, sceneHeight - y);
+            const sceneY = y + tileH / 2;
+            for (let x = 0; x < sceneWidth; x += tileSize) {
+                const tileW = Math.min(tileSize, sceneWidth - x);
+                const sceneX = x + tileW / 2;
+                const local = getObjectLocalPoint(sourceObj, sceneX, sceneY);
+                if (!local) continue;
+
+                const rawObjectX = local.x + objectWidth / 2;
+                const rawObjectY = local.y + objectHeight / 2;
+                const sourceAlpha = getAlphaAtObjectPoint(rawObjectX, rawObjectY);
+                if (sourceAlpha > 24) continue;
+
+                const objectX = sampleOutpaintCoordinate(rawObjectX, objectWidth);
+                const objectY = sampleOutpaintCoordinate(rawObjectY, objectHeight);
+                const sampleX = objectToPixelX(objectX);
+                const sampleY = objectToPixelY(objectY);
+                const idx = findOpaqueSampleIndex(sampleX, sampleY);
+                const alpha = sourcePixels[idx + 3] / 255;
+                const r = Math.round(sourcePixels[idx] * alpha + bgR * (1 - alpha));
+                const g = Math.round(sourcePixels[idx + 1] * alpha + bgG * (1 - alpha));
+                const b = Math.round(sourcePixels[idx + 2] * alpha + bgB * (1 - alpha));
+
+                outCtx.fillStyle = `rgb(${r}, ${g}, ${b})`;
+                outCtx.fillRect(x, y, tileW, tileH);
+            }
+        }
+
+        return out;
+    }
+
+    function createMosaicOutpaintFromActiveImage() {
+        if (!canvas || !window.fabric) {
+            setStatus("Canvas not ready");
+            return;
+        }
+
+        const active = canvas.getActiveObject();
+        if (!isImageObject(active)) {
+            setStatus("Select an image first");
+            return;
+        }
+
+        try {
+            flushHistoryCaptureNow();
+            removeMosaicOutpaintLayers();
+            const activeIndex = Math.max(0, canvas.getObjects().indexOf(active));
+            const mosaicCanvas = buildMosaicOutpaintCanvas(active);
+            if (!mosaicCanvas) {
+                setStatus("Mosaic source is not ready");
+                return;
+            }
+
+            const mosaic = new window.fabric.Image(mosaicCanvas, {
+                left: 0,
+                top: 0,
+                originX: "left",
+                originY: "top",
+                selectable: true,
+                evented: false,
+                hasControls: true,
+                hasBorders: true,
+                name: "Mosaic outpaint",
+                composerType: MOSAIC_TYPE
+            });
+
+            canvas.add(mosaic);
+            if (typeof canvas.moveTo === "function") {
+                canvas.moveTo(mosaic, activeIndex + 1);
+            }
+            canvas.setActiveObject(active);
+            active.setCoords();
+            mosaic.setCoords();
+            canvas.requestRenderAll();
+            syncLayersPanel();
+            scheduleHistoryCapture();
+            setStatus("Mosaic outpaint layer created");
+        } catch (err) {
+            console.error(err);
+            setStatus(`Mosaic failed: ${err?.message || "Unknown error"}`);
+        }
     }
 
     function addImageObject(img, asBackground, name) {
@@ -5886,6 +6079,7 @@
             const addHexagonBtn = document.getElementById("composer-add-hexagon-btn");
             const addOctagonBtn = document.getElementById("composer-add-octagon-btn");
             const removeBgBtn = document.getElementById("composer-remove-bg-btn");
+            const mosaicOutpaintBtn = document.getElementById("composer-mosaic-outpaint-btn");
             const layerUpBtn = document.getElementById("composer-layer-up-btn");
             const layerDownBtn = document.getElementById("composer-layer-down-btn");
             const flipXBtn = document.getElementById("composer-flip-x-btn");
@@ -5950,6 +6144,10 @@
             removeBgBtn?.addEventListener("click", () => {
                 disableDrawingMode(true);
                 removeBackgroundFromActiveImage();
+            });
+            mosaicOutpaintBtn?.addEventListener("click", () => {
+                disableDrawingMode(true);
+                createMosaicOutpaintFromActiveImage();
             });
 
             layerUpBtn?.addEventListener("click", () => moveActiveObjectLayer("up"));

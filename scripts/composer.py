@@ -138,6 +138,7 @@ COMPOSER_HTML = """
                 </button>
             </div>
             <button id="composer-remove-bg-btn" class="composer-btn" type="button">Remove BG</button>
+            <button id="composer-mosaic-outpaint-btn" class="composer-btn" type="button" title="Fill empty canvas area with image-edge mosaic">Mosaic</button>
             <button id="composer-layer-up-btn" class="composer-btn" type="button" title="Layer Up">&uarr;</button>
             <button id="composer-layer-down-btn" class="composer-btn" type="button" title="Layer Down">&darr;</button>
             <button id="composer-flip-x-btn" class="composer-btn" type="button" title="Flip Horizontal">&hArr;</button>
