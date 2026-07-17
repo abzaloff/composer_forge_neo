@@ -5733,6 +5733,195 @@
         return true;
     }
 
+    function getObjectSceneBounds(obj) {
+        if (!obj || !window.fabric?.util?.transformPoint || typeof obj.calcTransformMatrix !== "function") return null;
+        const width = obj.width || obj._element?.width || 0;
+        const height = obj.height || obj._element?.height || 0;
+        if (!width || !height) return null;
+
+        const matrix = obj.calcTransformMatrix();
+        const points = [
+            new window.fabric.Point(-width / 2, -height / 2),
+            new window.fabric.Point(width / 2, -height / 2),
+            new window.fabric.Point(width / 2, height / 2),
+            new window.fabric.Point(-width / 2, height / 2)
+        ].map((point) => window.fabric.util.transformPoint(point, matrix));
+
+        return {
+            minX: Math.min(...points.map((p) => p.x)),
+            minY: Math.min(...points.map((p) => p.y)),
+            maxX: Math.max(...points.map((p) => p.x)),
+            maxY: Math.max(...points.map((p) => p.y))
+        };
+    }
+
+    function getMosaicInpaintSourceObject() {
+        if (!canvas) return null;
+        const active = canvas.getActiveObject();
+        if (isImageObject(active) && active?.composerType !== MOSAIC_TYPE) {
+            return active;
+        }
+
+        const objects = canvas.getObjects();
+        const mosaicIndex = objects.findIndex((obj) => obj?.composerType === MOSAIC_TYPE);
+        if (mosaicIndex >= 0) {
+            return objects.slice(mosaicIndex + 1).find((obj) => isImageObject(obj) && obj?.composerType !== MOSAIC_TYPE) || null;
+        }
+
+        return [...objects].reverse().find((obj) => isImageObject(obj) && obj?.composerType !== MOSAIC_TYPE) || null;
+    }
+
+    function exportMosaicInpaintMaskToDataUrl(overlapRatio = 0.1) {
+        if (!canvas || !window.fabric?.util?.invertTransform || !window.fabric?.util?.transformPoint) return null;
+
+        const sourceObj = getMosaicInpaintSourceObject();
+        if (!sourceObj) {
+            setStatus("Mosaic source image not found for mask");
+            return null;
+        }
+
+        const sourceCanvas = renderObjectSourceCanvas(sourceObj);
+        if (!sourceCanvas) {
+            setStatus("Mask source is not ready");
+            return null;
+        }
+
+        const sourceCtx = sourceCanvas.getContext("2d", { willReadFrequently: true });
+        if (!sourceCtx) return null;
+
+        const sourceW = sourceCanvas.width;
+        const sourceH = sourceCanvas.height;
+        const sourcePixels = sourceCtx.getImageData(0, 0, sourceW, sourceH).data;
+        const objectW = sourceObj.width || sourceW;
+        const objectH = sourceObj.height || sourceH;
+        const bounds = getObjectSceneBounds(sourceObj);
+        const matrix = typeof sourceObj.calcTransformMatrix === "function" ? sourceObj.calcTransformMatrix() : null;
+        if (!bounds || !Array.isArray(matrix) || !objectW || !objectH) return null;
+
+        const out = document.createElement("canvas");
+        out.width = sceneWidth;
+        out.height = sceneHeight;
+        const outCtx = out.getContext("2d");
+        if (!outCtx) return null;
+        outCtx.fillStyle = "#ffffff";
+        outCtx.fillRect(0, 0, sceneWidth, sceneHeight);
+
+        const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
+        const objectToPixelX = (value) => clamp(Math.round((value / Math.max(1, objectW - 1)) * (sourceW - 1)), 0, sourceW - 1);
+        const objectToPixelY = (value) => clamp(Math.round((value / Math.max(1, objectH - 1)) * (sourceH - 1)), 0, sourceH - 1);
+        const minX = clamp(Math.floor(bounds.minX), 0, sceneWidth);
+        const minY = clamp(Math.floor(bounds.minY), 0, sceneHeight);
+        const maxX = clamp(Math.ceil(bounds.maxX), 0, sceneWidth);
+        const maxY = clamp(Math.ceil(bounds.maxY), 0, sceneHeight);
+        const width = Math.max(0, maxX - minX);
+        const height = Math.max(0, maxY - minY);
+        if (!width || !height) return out.toDataURL("image/png");
+
+        const pixels = outCtx.getImageData(minX, minY, width, height);
+        const data = pixels.data;
+        const inverted = window.fabric.util.invertTransform(matrix);
+        const overlapX = Math.max(1, objectW * overlapRatio);
+        const overlapY = Math.max(1, objectH * overlapRatio);
+        const sidePad = 1;
+        const hasLeftOutpaint = bounds.minX > sidePad;
+        const hasRightOutpaint = bounds.maxX < sceneWidth - sidePad;
+        const hasTopOutpaint = bounds.minY > sidePad;
+        const hasBottomOutpaint = bounds.maxY < sceneHeight - sidePad;
+
+        for (let py = 0; py < height; py += 1) {
+            for (let px = 0; px < width; px += 1) {
+                const sceneX = minX + px + 0.5;
+                const sceneY = minY + py + 0.5;
+                const local = window.fabric.util.transformPoint(new window.fabric.Point(sceneX, sceneY), inverted);
+                const objectX = local.x + objectW / 2;
+                const objectY = local.y + objectH / 2;
+                if (objectX < 0 || objectX >= objectW || objectY < 0 || objectY >= objectH) continue;
+
+                const sampleX = objectToPixelX(objectX);
+                const sampleY = objectToPixelY(objectY);
+                const alpha = sourcePixels[(sampleY * sourceW + sampleX) * 4 + 3] || 0;
+                if (alpha <= 8) continue;
+
+                const inOverlap = (hasLeftOutpaint && objectX < overlapX)
+                    || (hasRightOutpaint && objectX > objectW - overlapX)
+                    || (hasTopOutpaint && objectY < overlapY)
+                    || (hasBottomOutpaint && objectY > objectH - overlapY);
+                if (inOverlap) continue;
+
+                const idx = (py * width + px) * 4;
+                data[idx] = 0;
+                data[idx + 1] = 0;
+                data[idx + 2] = 0;
+                data[idx + 3] = 255;
+            }
+        }
+
+        outCtx.putImageData(pixels, minX, minY);
+        return out.toDataURL("image/png");
+    }
+
+    function findLabeledFileInput(labelRegex, preferredScopes = []) {
+        const composerRoot = document.getElementById("forge-composer-root");
+        const scopes = preferredScopes
+            .map((selector) => document.querySelector(selector))
+            .filter(Boolean);
+        if (scopes.length === 0) scopes.push(document);
+
+        for (const scope of scopes) {
+            const labels = [...scope.querySelectorAll("label, span, p, div")]
+                .filter((el) => !(composerRoot && composerRoot.contains(el)))
+                .filter((el) => {
+                    if (!isElementVisible(el)) return false;
+                    const text = normalizeUiText(el.textContent);
+                    return text.length > 0 && text.length <= 80 && labelRegex.test(text);
+                });
+            for (const label of labels) {
+                const block = label.closest(".block, .form, .gradio-container, .gradio-file, .file-preview, div") || label.parentElement;
+                const input = block?.querySelector?.('input[type="file"]');
+                if (input) return input;
+                let sibling = label.nextElementSibling;
+                for (let i = 0; sibling && i < 4; i += 1, sibling = sibling.nextElementSibling) {
+                    const candidate = sibling.matches?.('input[type="file"]')
+                        ? sibling
+                        : sibling.querySelector?.('input[type="file"]');
+                    if (candidate) return candidate;
+                }
+            }
+        }
+
+        return null;
+    }
+
+    function findInpaintUploadMaskInput(imageInput) {
+        const selectors = [
+            '#img2img_inpaint_upload [id*="mask"] input[type="file"]',
+            '#img2img_inpaint_upload_tab [id*="mask"] input[type="file"]',
+            '#inpaint_upload [id*="mask"] input[type="file"]',
+            '[id*="inpaint"][id*="upload"] [id*="mask"] input[type="file"]',
+            '[id*="img2img"][id*="inpaint"][id*="upload"] [id*="mask"] input[type="file"]'
+        ];
+        const direct = findBestFileInput(selectors, { allowGenericFallback: false });
+        if (direct && direct !== imageInput) return direct;
+
+        const labeled = findLabeledFileInput(/\bmask\b/i, [
+            '#img2img_inpaint_upload',
+            '#img2img_inpaint_upload_tab',
+            '#inpaint_upload',
+            '[id*="inpaint"][id*="upload"]'
+        ]);
+        if (labeled && labeled !== imageInput) return labeled;
+
+        const composerRoot = document.getElementById("forge-composer-root");
+        const all = [...document.querySelectorAll('input[type="file"]')]
+            .filter((el) => !(composerRoot && composerRoot.contains(el)));
+        const idx = all.indexOf(imageInput);
+        if (idx >= 0) {
+            return all.slice(idx + 1).find((el) => normalizeUiText(el.closest(".block, .form, div")?.textContent).includes("mask")) || all[idx + 1] || null;
+        }
+
+        return null;
+    }
+
     async function sendToForgeTarget(targetMode) {
         const dataUrl = exportCanvasToDataUrl();
         if (!dataUrl) {
@@ -5858,6 +6047,27 @@
         }
 
         assignFileToInput(targetInput, file);
+
+        if (targetMode === "inpaint_upload") {
+            await new Promise((r) => setTimeout(r, 260));
+            const maskDataUrl = exportMosaicInpaintMaskToDataUrl(0.1);
+            if (!maskDataUrl) {
+                setStatus("Sent to Inpaint upload, mask export failed");
+                return;
+            }
+
+            const maskInput = findInpaintUploadMaskInput(targetInput);
+            if (!maskInput) {
+                setStatus("Sent to Inpaint upload, mask input not found");
+                return;
+            }
+
+            const maskBlob = dataURLtoBlob(maskDataUrl);
+            const maskFile = new File([maskBlob], "composer_inpaint_mask.png", { type: "image/png" });
+            assignFileToInput(maskInput, maskFile);
+            setStatus("Sent to Inpaint upload with mask");
+            return;
+        }
 
         // ControlNet UI may rebuild the input right after mode switch.
         // Retry once more after a short delay to make the upload stick.
