@@ -2451,25 +2451,19 @@
         const objectWidth = sourceObj.width || size.width;
         const objectHeight = sourceObj.height || size.height;
         const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
-        const mirrorDistance = (distance, extent) => {
-            const max = Math.max(1, extent - 1);
-            const period = Math.max(1, max * 2);
-            const wrapped = ((distance % period) + period) % period;
-            return wrapped <= max ? wrapped : period - wrapped;
+        const wrapDistance = (distance, extent) => {
+            const max = Math.max(1, extent);
+            return ((distance % max) + max) % max;
         };
-        const sampleOutpaintCoordinate = (value, extent) => {
-            if (value < 0) return mirrorDistance(-value, extent);
-            if (value >= extent) return Math.max(0, extent - 1 - mirrorDistance(value - extent, extent));
+        const sampleEdgeStripCoordinate = (value, extent, stripSize) => {
+            const strip = Math.max(1, Math.min(extent, stripSize));
+            if (value < 0) return wrapDistance(-value, strip);
+            if (value >= extent) return Math.max(0, extent - 1 - wrapDistance(value - extent, strip));
             return value;
         };
         const objectToPixelX = (value) => clamp(Math.round((value / Math.max(1, objectWidth - 1)) * (size.width - 1)), 0, size.width - 1);
         const objectToPixelY = (value) => clamp(Math.round((value / Math.max(1, objectHeight - 1)) * (size.height - 1)), 0, size.height - 1);
         const getPixelIndex = (px, py) => (py * size.width + px) * 4;
-        const getAlphaAtObjectPoint = (objectX, objectY) => {
-            if (objectX < 0 || objectX >= objectWidth || objectY < 0 || objectY >= objectHeight) return 0;
-            const idx = getPixelIndex(objectToPixelX(objectX), objectToPixelY(objectY));
-            return sourcePixels[idx + 3] || 0;
-        };
         const findOpaqueSampleIndex = (px, py) => {
             const startIdx = getPixelIndex(px, py);
             if ((sourcePixels[startIdx + 3] || 0) > 8) return startIdx;
@@ -2493,6 +2487,8 @@
         const bgR = parseInt(bg.slice(1, 3), 16);
         const bgG = parseInt(bg.slice(3, 5), 16);
         const bgB = parseInt(bg.slice(5, 7), 16);
+        const stripX = Math.max(tileSize * 3, objectWidth * 0.12);
+        const stripY = Math.max(tileSize * 3, objectHeight * 0.12);
 
         for (let y = 0; y < sceneHeight; y += tileSize) {
             const tileH = Math.min(tileSize, sceneHeight - y);
@@ -2505,11 +2501,8 @@
 
                 const rawObjectX = local.x + objectWidth / 2;
                 const rawObjectY = local.y + objectHeight / 2;
-                const sourceAlpha = getAlphaAtObjectPoint(rawObjectX, rawObjectY);
-                if (sourceAlpha > 24) continue;
-
-                const objectX = sampleOutpaintCoordinate(rawObjectX, objectWidth);
-                const objectY = sampleOutpaintCoordinate(rawObjectY, objectHeight);
+                const objectX = sampleEdgeStripCoordinate(rawObjectX, objectWidth, stripX);
+                const objectY = sampleEdgeStripCoordinate(rawObjectY, objectHeight, stripY);
                 const sampleX = objectToPixelX(objectX);
                 const sampleY = objectToPixelY(objectY);
                 const idx = findOpaqueSampleIndex(sampleX, sampleY);
@@ -2563,9 +2556,9 @@
 
             canvas.add(mosaic);
             if (typeof canvas.moveTo === "function") {
-                canvas.moveTo(mosaic, activeIndex + 1);
+                canvas.moveTo(mosaic, activeIndex);
             }
-            canvas.setActiveObject(active);
+            canvas.discardActiveObject();
             active.setCoords();
             mosaic.setCoords();
             canvas.requestRenderAll();
