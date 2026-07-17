@@ -2489,29 +2489,52 @@
         const bgB = parseInt(bg.slice(5, 7), 16);
         const stripX = Math.max(tileSize * 3, objectWidth * 0.12);
         const stripY = Math.max(tileSize * 3, objectHeight * 0.12);
+        const mosaicSampleSteps = 4;
+        const sampleSceneColor = (sceneX, sceneY) => {
+            const local = getObjectLocalPoint(sourceObj, sceneX, sceneY);
+            if (!local) return null;
+
+            const rawObjectX = local.x + objectWidth / 2;
+            const rawObjectY = local.y + objectHeight / 2;
+            const objectX = sampleEdgeStripCoordinate(rawObjectX, objectWidth, stripX);
+            const objectY = sampleEdgeStripCoordinate(rawObjectY, objectHeight, stripY);
+            const sampleX = objectToPixelX(objectX);
+            const sampleY = objectToPixelY(objectY);
+            const idx = findOpaqueSampleIndex(sampleX, sampleY);
+            const alpha = sourcePixels[idx + 3] / 255;
+
+            return {
+                r: sourcePixels[idx] * alpha + bgR * (1 - alpha),
+                g: sourcePixels[idx + 1] * alpha + bgG * (1 - alpha),
+                b: sourcePixels[idx + 2] * alpha + bgB * (1 - alpha)
+            };
+        };
 
         for (let y = 0; y < sceneHeight; y += tileSize) {
             const tileH = Math.min(tileSize, sceneHeight - y);
-            const sceneY = y + tileH / 2;
             for (let x = 0; x < sceneWidth; x += tileSize) {
                 const tileW = Math.min(tileSize, sceneWidth - x);
-                const sceneX = x + tileW / 2;
-                const local = getObjectLocalPoint(sourceObj, sceneX, sceneY);
-                if (!local) continue;
+                let r = 0;
+                let g = 0;
+                let b = 0;
+                let count = 0;
 
-                const rawObjectX = local.x + objectWidth / 2;
-                const rawObjectY = local.y + objectHeight / 2;
-                const objectX = sampleEdgeStripCoordinate(rawObjectX, objectWidth, stripX);
-                const objectY = sampleEdgeStripCoordinate(rawObjectY, objectHeight, stripY);
-                const sampleX = objectToPixelX(objectX);
-                const sampleY = objectToPixelY(objectY);
-                const idx = findOpaqueSampleIndex(sampleX, sampleY);
-                const alpha = sourcePixels[idx + 3] / 255;
-                const r = Math.round(sourcePixels[idx] * alpha + bgR * (1 - alpha));
-                const g = Math.round(sourcePixels[idx + 1] * alpha + bgG * (1 - alpha));
-                const b = Math.round(sourcePixels[idx + 2] * alpha + bgB * (1 - alpha));
+                for (let sy = 0; sy < mosaicSampleSteps; sy += 1) {
+                    const sceneY = y + ((sy + 0.5) / mosaicSampleSteps) * tileH;
+                    for (let sx = 0; sx < mosaicSampleSteps; sx += 1) {
+                        const sceneX = x + ((sx + 0.5) / mosaicSampleSteps) * tileW;
+                        const color = sampleSceneColor(sceneX, sceneY);
+                        if (!color) continue;
+                        r += color.r;
+                        g += color.g;
+                        b += color.b;
+                        count += 1;
+                    }
+                }
 
-                outCtx.fillStyle = `rgb(${r}, ${g}, ${b})`;
+                if (count === 0) continue;
+
+                outCtx.fillStyle = `rgb(${Math.round(r / count)}, ${Math.round(g / count)}, ${Math.round(b / count)})`;
                 outCtx.fillRect(x, y, tileW, tileH);
             }
         }
