@@ -14,11 +14,18 @@
     const SCENE_STEP = 64;
     const MOSAIC_TILE_SIZE = 32;
     const MOSAIC_TYPE = "mosaicOutpaint";
+    const MOSAIC_OVERLAP_PREVIEW_TYPE = "mosaicOverlapPreview";
     let sceneWidth = 1024;
     let sceneHeight = 1024;
     let stageHeight = STAGE_DEFAULT_HEIGHT;
     let displayScale = 1;
     let gridDivisions = 1;
+    let mosaicTileWidth = MOSAIC_TILE_SIZE;
+    let mosaicTileHeight = MOSAIC_TILE_SIZE;
+    let mosaicMaskOverlap = 0.1;
+    let mosaicSourceObject = null;
+    let lastSelectedImageObject = null;
+    let mosaicOverlapPreviewObjects = [];
     let currentTextColor = "#ffffff";
     let currentTextFontFamily = "Arial";
     let currentTextFontWeight = "400";
@@ -184,6 +191,68 @@
             });
         });
         overlay.dataset.bound = "1";
+    }
+
+    function clampRangeInputValue(input, fallback) {
+        const min = Number(input?.min);
+        const max = Number(input?.max);
+        const raw = Number(input?.value);
+        const safeMin = Number.isFinite(min) ? min : 0;
+        const safeMax = Number.isFinite(max) ? max : Number.MAX_SAFE_INTEGER;
+        const value = Number.isFinite(raw) ? raw : fallback;
+        return Math.max(safeMin, Math.min(safeMax, value));
+    }
+
+    function syncMosaicControls() {
+        const tileW = document.getElementById("composer-mosaic-tile-w");
+        const tileH = document.getElementById("composer-mosaic-tile-h");
+        const overlap = document.getElementById("composer-mosaic-mask-overlap");
+        const tileWValue = document.getElementById("composer-mosaic-tile-w-value");
+        const tileHValue = document.getElementById("composer-mosaic-tile-h-value");
+        const overlapValue = document.getElementById("composer-mosaic-mask-overlap-value");
+
+        if (tileW) tileW.value = String(mosaicTileWidth);
+        if (tileH) tileH.value = String(mosaicTileHeight);
+        if (overlap) overlap.value = String(Math.round(mosaicMaskOverlap * 100));
+        if (tileWValue) tileWValue.textContent = String(mosaicTileWidth);
+        if (tileHValue) tileHValue.textContent = String(mosaicTileHeight);
+        if (overlapValue) overlapValue.textContent = `${Math.round(mosaicMaskOverlap * 100)}%`;
+    }
+
+    function refreshMosaicLayerIfPresent() {
+        const mosaic = getExistingMosaicLayer();
+        if (!mosaic) return;
+        const source = getLiveMosaicSourceObject();
+        if (!source) return;
+        upsertMosaicOutpaintLayer(source, true);
+    }
+
+    function bindMosaicControls() {
+        const panel = document.getElementById("composer-mosaic-panel");
+        const tileW = document.getElementById("composer-mosaic-tile-w");
+        const tileH = document.getElementById("composer-mosaic-tile-h");
+        const overlap = document.getElementById("composer-mosaic-mask-overlap");
+        if (!panel || !tileW || !tileH || !overlap || panel.dataset.bound === "1") return;
+
+        syncMosaicControls();
+
+        tileW.addEventListener("input", () => {
+            mosaicTileWidth = Math.round(clampRangeInputValue(tileW, MOSAIC_TILE_SIZE));
+            syncMosaicControls();
+            refreshMosaicLayerIfPresent();
+        });
+        tileH.addEventListener("input", () => {
+            mosaicTileHeight = Math.round(clampRangeInputValue(tileH, MOSAIC_TILE_SIZE));
+            syncMosaicControls();
+            refreshMosaicLayerIfPresent();
+        });
+        overlap.addEventListener("input", () => {
+            mosaicMaskOverlap = clampRangeInputValue(overlap, 10) / 100;
+            syncMosaicControls();
+            syncMosaicOverlapPreview();
+        });
+
+        panel.dataset.bound = "1";
     }
 
     function cloneWarpCorners(corners) {
@@ -970,6 +1039,9 @@
     function getHistorySnapshot() {
         if (!canvas) return null;
         const canvasJson = canvas.toJSON(["name", "composerType", "warpCorners"]);
+        if (Array.isArray(canvasJson.objects)) {
+            canvasJson.objects = canvasJson.objects.filter((obj) => obj?.composerType !== MOSAIC_OVERLAP_PREVIEW_TYPE);
+        }
         const key = JSON.stringify({
             sceneWidth,
             sceneHeight,
@@ -1257,6 +1329,9 @@
         } else {
             ensureLockedLayerIsActive();
         }
+        if (isImageObject(active) && active?.composerType !== MOSAIC_TYPE) {
+            lastSelectedImageObject = active;
+        }
         syncLayersPanel();
     }
 
@@ -1405,11 +1480,16 @@
         return selected;
     }
 
+    function isInternalComposerObject(obj) {
+        return obj?.composerType === CLEAN_MASK_TYPE
+            || obj?.composerType === MOSAIC_OVERLAP_PREVIEW_TYPE;
+    }
+
     function syncLayersPanel() {
         const list = document.getElementById("composer-layers-list");
         if (!list || !canvas) return;
 
-        const objects = canvas.getObjects().filter((obj) => obj?.composerType !== CLEAN_MASK_TYPE);
+        const objects = canvas.getObjects().filter((obj) => !isInternalComposerObject(obj));
         const allObjects = canvas.getObjects();
         if (lockedLayerObject && !allObjects.includes(lockedLayerObject)) {
             clearLayerSelectionLock();
@@ -1636,7 +1716,8 @@
     function bindHistoryTracking() {
         if (!canvas || canvas.__composerHistoryBound) return;
 
-        const onHistoryChange = () => {
+        const onHistoryChange = (e) => {
+            if (isInternalComposerObject(e?.target)) return;
             scheduleHistoryCapture();
         };
         const EPS = 0.0001;
@@ -1656,6 +1737,7 @@
         };
 
         const shouldTrackModified = (target) => {
+            if (isInternalComposerObject(target)) return false;
             if (!target) return true;
             const before = target.__composerBeforeTransform;
             target.__composerBeforeTransform = null;
@@ -2078,6 +2160,7 @@
         sceneHeight = height;
         syncCanvasSizeControls();
         fitCanvasSize();
+        syncMosaicOverlapPreview();
         if (captureHistory) scheduleHistoryCapture();
         return true;
     }
@@ -2399,7 +2482,89 @@
         if (!canvas) return 0;
         const layers = canvas.getObjects().filter((obj) => obj?.composerType === MOSAIC_TYPE);
         layers.forEach((obj) => canvas.remove(obj));
+        clearMosaicOverlapPreview();
+        if (layers.length > 0) mosaicSourceObject = null;
         return layers.length;
+    }
+
+    function clearMosaicOverlapPreview() {
+        if (!canvas || mosaicOverlapPreviewObjects.length === 0) {
+            mosaicOverlapPreviewObjects = [];
+            return;
+        }
+        mosaicOverlapPreviewObjects.forEach((obj) => {
+            if (canvas.getObjects().includes(obj)) canvas.remove(obj);
+        });
+        mosaicOverlapPreviewObjects = [];
+    }
+
+    function getExistingMosaicLayer() {
+        if (!canvas) return null;
+        return canvas.getObjects().find((obj) => obj?.composerType === MOSAIC_TYPE) || null;
+    }
+
+    function getLiveMosaicSourceObject() {
+        if (canvas && mosaicSourceObject && canvas.getObjects().includes(mosaicSourceObject)) {
+            return mosaicSourceObject;
+        }
+        return getMosaicInpaintSourceObject();
+    }
+
+    function syncMosaicOverlapPreview() {
+        clearMosaicOverlapPreview();
+        if (!canvas || !window.fabric?.Line || !window.fabric?.util?.transformPoint) return;
+
+        const sourceObj = getLiveMosaicSourceObject();
+        const mosaic = getExistingMosaicLayer();
+        if (!sourceObj || !mosaic) return;
+
+        const bounds = getObjectSceneBounds(sourceObj);
+        const matrix = typeof sourceObj.calcTransformMatrix === "function" ? sourceObj.calcTransformMatrix() : null;
+        const objectW = sourceObj.width || sourceObj._element?.width || 0;
+        const objectH = sourceObj.height || sourceObj._element?.height || 0;
+        if (!bounds || !Array.isArray(matrix) || !objectW || !objectH) return;
+
+        const sidePad = 1;
+        const hasLeftOutpaint = bounds.minX > sidePad;
+        const hasRightOutpaint = bounds.maxX < sceneWidth - sidePad;
+        const hasTopOutpaint = bounds.minY > sidePad;
+        const hasBottomOutpaint = bounds.maxY < sceneHeight - sidePad;
+        const overlapX = Math.max(1, objectW * mosaicMaskOverlap);
+        const overlapY = Math.max(1, objectH * mosaicMaskOverlap);
+        const makePoint = (x, y) => window.fabric.util.transformPoint(new window.fabric.Point(x, y), matrix);
+        const lineDefs = [];
+
+        if (hasLeftOutpaint) {
+            lineDefs.push([makePoint(-objectW / 2 + overlapX, -objectH / 2), makePoint(-objectW / 2 + overlapX, objectH / 2)]);
+        }
+        if (hasRightOutpaint) {
+            lineDefs.push([makePoint(objectW / 2 - overlapX, -objectH / 2), makePoint(objectW / 2 - overlapX, objectH / 2)]);
+        }
+        if (hasTopOutpaint) {
+            lineDefs.push([makePoint(-objectW / 2, -objectH / 2 + overlapY), makePoint(objectW / 2, -objectH / 2 + overlapY)]);
+        }
+        if (hasBottomOutpaint) {
+            lineDefs.push([makePoint(-objectW / 2, objectH / 2 - overlapY), makePoint(objectW / 2, objectH / 2 - overlapY)]);
+        }
+
+        mosaicOverlapPreviewObjects = lineDefs.map(([p0, p1]) => new window.fabric.Line(
+            [p0.x, p0.y, p1.x, p1.y],
+            {
+                stroke: "#35ff35",
+                strokeWidth: 2,
+                opacity: 0.9,
+                selectable: false,
+                evented: false,
+                excludeFromExport: true,
+                composerType: MOSAIC_OVERLAP_PREVIEW_TYPE,
+                name: "Mosaic mask overlap preview"
+            }
+        ));
+        mosaicOverlapPreviewObjects.forEach((line) => {
+            canvas.add(line);
+            if (typeof line.bringToFront === "function") line.bringToFront();
+        });
+        canvas.requestRenderAll();
     }
 
     function renderObjectSourceCanvas(obj) {
@@ -2430,7 +2595,7 @@
         return fallback;
     }
 
-    function buildMosaicOutpaintCanvas(sourceObj, tileSize = MOSAIC_TILE_SIZE) {
+    function buildMosaicOutpaintCanvas(sourceObj, tileWidth = mosaicTileWidth, tileHeight = mosaicTileHeight) {
         const sourceCanvas = renderObjectSourceCanvas(sourceObj);
         if (!sourceCanvas) return null;
 
@@ -2487,8 +2652,10 @@
         const bgR = parseInt(bg.slice(1, 3), 16);
         const bgG = parseInt(bg.slice(3, 5), 16);
         const bgB = parseInt(bg.slice(5, 7), 16);
-        const stripX = Math.max(tileSize * 3, objectWidth * 0.12);
-        const stripY = Math.max(tileSize * 3, objectHeight * 0.12);
+        const tileWBase = Math.max(1, Math.round(Number(tileWidth) || MOSAIC_TILE_SIZE));
+        const tileHBase = Math.max(1, Math.round(Number(tileHeight) || MOSAIC_TILE_SIZE));
+        const stripX = Math.max(tileWBase * 3, objectWidth * 0.12);
+        const stripY = Math.max(tileHBase * 3, objectHeight * 0.12);
         const mosaicSampleSteps = 4;
         const sampleSceneColor = (sceneX, sceneY) => {
             const local = getObjectLocalPoint(sourceObj, sceneX, sceneY);
@@ -2510,10 +2677,10 @@
             };
         };
 
-        for (let y = 0; y < sceneHeight; y += tileSize) {
-            const tileH = Math.min(tileSize, sceneHeight - y);
-            for (let x = 0; x < sceneWidth; x += tileSize) {
-                const tileW = Math.min(tileSize, sceneWidth - x);
+        for (let y = 0; y < sceneHeight; y += tileHBase) {
+            const tileH = Math.min(tileHBase, sceneHeight - y);
+            for (let x = 0; x < sceneWidth; x += tileWBase) {
+                const tileW = Math.min(tileWBase, sceneWidth - x);
                 let r = 0;
                 let g = 0;
                 let b = 0;
@@ -2542,52 +2709,88 @@
         return out;
     }
 
+    function upsertMosaicOutpaintLayer(sourceObj, silent = false) {
+        if (!canvas || !window.fabric || !sourceObj) {
+            if (!silent) setStatus("Select an image first");
+            return false;
+        }
+
+        const objects = canvas.getObjects();
+        const existing = getExistingMosaicLayer();
+        const existingIndex = existing ? objects.indexOf(existing) : -1;
+        if (existing) {
+            canvas.remove(existing);
+        }
+        clearMosaicOverlapPreview();
+
+        const activeIndex = Math.max(0, canvas.getObjects().indexOf(sourceObj));
+        const targetIndex = existingIndex >= 0 ? existingIndex : activeIndex;
+        const mosaicCanvas = buildMosaicOutpaintCanvas(sourceObj, mosaicTileWidth, mosaicTileHeight);
+        if (!mosaicCanvas) {
+            if (!silent) setStatus("Mosaic source is not ready");
+            return false;
+        }
+
+        const mosaic = new window.fabric.Image(mosaicCanvas, {
+            left: 0,
+            top: 0,
+            originX: "left",
+            originY: "top",
+            selectable: true,
+            evented: false,
+            hasControls: true,
+            hasBorders: true,
+            name: "Mosaic outpaint",
+            composerType: MOSAIC_TYPE
+        });
+
+        canvas.add(mosaic);
+        if (typeof canvas.moveTo === "function") {
+            canvas.moveTo(mosaic, targetIndex);
+        }
+        mosaicSourceObject = sourceObj;
+        sourceObj.setCoords();
+        mosaic.setCoords();
+        canvas.discardActiveObject();
+        canvas.requestRenderAll();
+        syncLayersPanel();
+        syncMosaicOverlapPreview();
+        scheduleHistoryCapture();
+        if (!silent) setStatus("Mosaic outpaint layer created");
+        return true;
+    }
+
+    function getSelectedMosaicSourceObject() {
+        if (!canvas) return null;
+        const objects = canvas.getObjects();
+        const active = canvas.getActiveObject();
+        if (isImageObject(active) && active?.composerType !== MOSAIC_TYPE && objects.includes(active)) {
+            return active;
+        }
+        if (isImageObject(lockedLayerObject) && lockedLayerObject?.composerType !== MOSAIC_TYPE && objects.includes(lockedLayerObject)) {
+            return lockedLayerObject;
+        }
+        if (isImageObject(lastSelectedImageObject) && lastSelectedImageObject?.composerType !== MOSAIC_TYPE && objects.includes(lastSelectedImageObject)) {
+            return lastSelectedImageObject;
+        }
+        return null;
+    }
+
     function createMosaicOutpaintFromActiveImage() {
         if (!canvas || !window.fabric) {
             setStatus("Canvas not ready");
             return;
         }
 
-        const active = canvas.getActiveObject();
-        if (!isImageObject(active)) {
+        const source = getSelectedMosaicSourceObject();
+        if (!source) {
             setStatus("Select an image first");
             return;
         }
 
         try {
             flushHistoryCaptureNow();
-            removeMosaicOutpaintLayers();
-            const activeIndex = Math.max(0, canvas.getObjects().indexOf(active));
-            const mosaicCanvas = buildMosaicOutpaintCanvas(active);
-            if (!mosaicCanvas) {
-                setStatus("Mosaic source is not ready");
-                return;
-            }
-
-            const mosaic = new window.fabric.Image(mosaicCanvas, {
-                left: 0,
-                top: 0,
-                originX: "left",
-                originY: "top",
-                selectable: true,
-                evented: false,
-                hasControls: true,
-                hasBorders: true,
-                name: "Mosaic outpaint",
-                composerType: MOSAIC_TYPE
-            });
-
-            canvas.add(mosaic);
-            if (typeof canvas.moveTo === "function") {
-                canvas.moveTo(mosaic, activeIndex);
-            }
-            canvas.discardActiveObject();
-            active.setCoords();
-            mosaic.setCoords();
-            canvas.requestRenderAll();
-            syncLayersPanel();
-            scheduleHistoryCapture();
-            setStatus("Mosaic outpaint layer created");
+            upsertMosaicOutpaintLayer(source, false);
         } catch (err) {
             console.error(err);
             setStatus(`Mosaic failed: ${err?.message || "Unknown error"}`);
@@ -2641,6 +2844,7 @@
 
         canvas.add(img);
         canvas.setActiveObject(img);
+        lastSelectedImageObject = img;
         canvas.renderAll();
         setStatus(`Object added: ${name}`);
     }
@@ -3357,6 +3561,13 @@
 
         if (active === backgroundObject) {
             backgroundObject = null;
+        }
+        if (active === lastSelectedImageObject) {
+            lastSelectedImageObject = null;
+        }
+        if (active === mosaicSourceObject) {
+            mosaicSourceObject = null;
+            clearMosaicOverlapPreview();
         }
         canvas.remove(active);
         canvas.discardActiveObject();
@@ -5215,13 +5426,13 @@
         const prevWrapperWidth = wrapper?.style.width || "";
         const prevWrapperHeight = wrapper?.style.height || "";
         const prevWrapperMargin = wrapper?.style.margin || "";
-        const cleanMaskVisibility = getCleanMaskObjects().map((obj) => ({
+        const internalVisibility = canvas.getObjects().filter(isInternalComposerObject).map((obj) => ({
             obj,
             visible: obj.visible
         }));
 
         try {
-            cleanMaskVisibility.forEach(({ obj }) => {
+            internalVisibility.forEach(({ obj }) => {
                 obj.visible = false;
             });
             if (prevActive) {
@@ -5278,7 +5489,7 @@
                 wrapper.style.height = prevWrapperHeight;
                 wrapper.style.margin = prevWrapperMargin;
             }
-            cleanMaskVisibility.forEach(({ obj, visible }) => {
+            internalVisibility.forEach(({ obj, visible }) => {
                 obj.visible = visible;
             });
 
@@ -5780,6 +5991,9 @@
 
     function getMosaicInpaintSourceObject() {
         if (!canvas) return null;
+        if (mosaicSourceObject && canvas.getObjects().includes(mosaicSourceObject)) {
+            return mosaicSourceObject;
+        }
         const active = canvas.getActiveObject();
         if (isImageObject(active) && active?.composerType !== MOSAIC_TYPE) {
             return active;
@@ -5794,7 +6008,7 @@
         return [...objects].reverse().find((obj) => isImageObject(obj) && obj?.composerType !== MOSAIC_TYPE) || null;
     }
 
-    function exportMosaicInpaintMaskToDataUrl(overlapRatio = 0.1) {
+    function exportMosaicInpaintMaskToDataUrl(overlapRatio = mosaicMaskOverlap) {
         if (!canvas || !window.fabric?.util?.invertTransform || !window.fabric?.util?.transformPoint) return null;
 
         const sourceObj = getMosaicInpaintSourceObject();
@@ -6115,7 +6329,7 @@
 
         if (targetMode === "inpaint_upload") {
             await new Promise((r) => setTimeout(r, 260));
-            const maskDataUrl = exportMosaicInpaintMaskToDataUrl(0.1);
+            const maskDataUrl = exportMosaicInpaintMaskToDataUrl(mosaicMaskOverlap);
             if (!maskDataUrl) {
                 setStatus("Sent to Inpaint upload, mask export failed");
                 return;
@@ -6322,10 +6536,22 @@
             canvas.on("selection:created", () => {
                 syncLayerLockFromCanvasSelection();
                 updateDrawingControlsState();
+                syncMosaicOverlapPreview();
             });
             canvas.on("selection:updated", () => {
                 syncLayerLockFromCanvasSelection();
                 updateDrawingControlsState();
+                syncMosaicOverlapPreview();
+            });
+            canvas.on("selection:cleared", syncMosaicOverlapPreview);
+            canvas.on("object:moving", (opt) => {
+                if (opt?.target === mosaicSourceObject) syncMosaicOverlapPreview();
+            });
+            canvas.on("object:scaling", (opt) => {
+                if (opt?.target === mosaicSourceObject) syncMosaicOverlapPreview();
+            });
+            canvas.on("object:modified", (opt) => {
+                if (opt?.target === mosaicSourceObject) syncMosaicOverlapPreview();
             });
 
             const ok = bindUploadButtons();
@@ -6342,6 +6568,7 @@
             bindTextStyleControls();
             bindCanvasSizeControls();
             bindGridControls();
+            bindMosaicControls();
             bindDeleteShortcut();
             bindOutsideCanvasDeselect();
             bindClipboardPaste();
@@ -6386,6 +6613,9 @@
                 all.forEach(obj => canvas.remove(obj));
                 backgroundObject = null;
                 lastEraserTargets = [];
+                mosaicSourceObject = null;
+                lastSelectedImageObject = null;
+                mosaicOverlapPreviewObjects = [];
                 resetSceneViewport();
                 canvas.renderAll();
                 setStatus("Scene cleared");
