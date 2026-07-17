@@ -5822,11 +5822,13 @@
         const inverted = window.fabric.util.invertTransform(matrix);
         const overlapX = Math.max(1, objectW * overlapRatio);
         const overlapY = Math.max(1, objectH * overlapRatio);
+        const holeOverlap = Math.max(2, Math.round(Math.min(width, height, objectW, objectH) * overlapRatio));
         const sidePad = 1;
         const hasLeftOutpaint = bounds.minX > sidePad;
         const hasRightOutpaint = bounds.maxX < sceneWidth - sidePad;
         const hasTopOutpaint = bounds.minY > sidePad;
         const hasBottomOutpaint = bounds.maxY < sceneHeight - sidePad;
+        const shouldProtect = new Uint8Array(width * height);
 
         for (let py = 0; py < height; py += 1) {
             for (let px = 0; px < width; px += 1) {
@@ -5848,6 +5850,46 @@
                     || (hasBottomOutpaint && objectY > objectH - overlapY);
                 if (inOverlap) continue;
 
+                shouldProtect[py * width + px] = 1;
+            }
+        }
+
+        if (holeOverlap > 0) {
+            const originalProtect = shouldProtect.slice();
+            const horizontalWhite = new Uint8Array(width * height);
+
+            for (let py = 0; py < height; py += 1) {
+                let windowWhite = 0;
+                for (let x = 0; x <= Math.min(holeOverlap, width - 1); x += 1) {
+                    if (originalProtect[py * width + x] === 0) windowWhite += 1;
+                }
+                for (let px = 0; px < width; px += 1) {
+                    if (windowWhite > 0) horizontalWhite[py * width + px] = 1;
+                    const removeX = px - holeOverlap;
+                    const addX = px + holeOverlap + 1;
+                    if (removeX >= 0 && originalProtect[py * width + removeX] === 0) windowWhite -= 1;
+                    if (addX < width && originalProtect[py * width + addX] === 0) windowWhite += 1;
+                }
+            }
+
+            for (let px = 0; px < width; px += 1) {
+                let windowWhite = 0;
+                for (let y = 0; y <= Math.min(holeOverlap, height - 1); y += 1) {
+                    if (horizontalWhite[y * width + px] !== 0) windowWhite += 1;
+                }
+                for (let py = 0; py < height; py += 1) {
+                    shouldProtect[py * width + px] = windowWhite > 0 ? 0 : originalProtect[py * width + px];
+                    const removeY = py - holeOverlap;
+                    const addY = py + holeOverlap + 1;
+                    if (removeY >= 0 && horizontalWhite[removeY * width + px] !== 0) windowWhite -= 1;
+                    if (addY < height && horizontalWhite[addY * width + px] !== 0) windowWhite += 1;
+                }
+            }
+        }
+
+        for (let py = 0; py < height; py += 1) {
+            for (let px = 0; px < width; px += 1) {
+                if (shouldProtect[py * width + px] === 0) continue;
                 const idx = (py * width + px) * 4;
                 data[idx] = 0;
                 data[idx + 1] = 0;
