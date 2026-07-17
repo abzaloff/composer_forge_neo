@@ -2063,6 +2063,23 @@
         updateSizeLabels();
     }
 
+    function applySceneSize(nextWidth, nextHeight, captureHistory = true) {
+        const width = clampToStepSize(nextWidth);
+        const height = clampToStepSize(nextHeight);
+
+        if (width === sceneWidth && height === sceneHeight) {
+            syncCanvasSizeControls();
+            return false;
+        }
+
+        sceneWidth = width;
+        sceneHeight = height;
+        syncCanvasSizeControls();
+        fitCanvasSize();
+        if (captureHistory) scheduleHistoryCapture();
+        return true;
+    }
+
     function bindCanvasSizeControls() {
         const widthSlider = document.getElementById("composer-width-slider");
         const heightSlider = document.getElementById("composer-height-slider");
@@ -2077,19 +2094,13 @@
         widthSlider.addEventListener("input", () => {
             const next = clampToStepSize(widthSlider.value);
             widthSlider.value = String(next);
-            sceneWidth = next;
-            updateSizeLabels();
-            fitCanvasSize();
-            scheduleHistoryCapture();
+            applySceneSize(next, sceneHeight);
         });
 
         heightSlider.addEventListener("input", () => {
             const next = clampToStepSize(heightSlider.value);
             heightSlider.value = String(next);
-            sceneHeight = next;
-            updateSizeLabels();
-            fitCanvasSize();
-            scheduleHistoryCapture();
+            applySceneSize(sceneWidth, next);
         });
     }
 
@@ -2319,6 +2330,59 @@
         canvas.requestRenderAll();
         scheduleHistoryCapture();
         setStatus("Image covered canvas");
+    }
+
+    function getImageIntrinsicSize(obj) {
+        if (!obj) return { width: 0, height: 0 };
+        const el = obj._element || obj._originalElement || null;
+        return {
+            width: Math.round(el?.naturalWidth || el?.videoWidth || obj.width || 0),
+            height: Math.round(el?.naturalHeight || el?.videoHeight || obj.height || 0)
+        };
+    }
+
+    function fitCanvasToActiveImage() {
+        if (!canvas || !window.fabric) {
+            setStatus("Canvas not ready");
+            return;
+        }
+
+        const active = canvas.getActiveObject();
+        if (!isImageObject(active)) {
+            setStatus("Select an image first");
+            return;
+        }
+
+        const size = getImageIntrinsicSize(active);
+        if (!size.width || !size.height) {
+            setStatus("Image has invalid size");
+            return;
+        }
+
+        flushHistoryCaptureNow();
+
+        const nextWidth = clampToStepSize(size.width);
+        const nextHeight = clampToStepSize(size.height);
+        applySceneSize(nextWidth, nextHeight, false);
+
+        const baseWidth = active.width || size.width;
+        const baseHeight = active.height || size.height;
+        const signX = (Number(active.scaleX) || 1) < 0 ? -1 : 1;
+        const signY = (Number(active.scaleY) || 1) < 0 ? -1 : 1;
+        const center = new window.fabric.Point(nextWidth / 2, nextHeight / 2);
+
+        active.set({
+            originX: "center",
+            originY: "center",
+            scaleX: signX * (nextWidth / Math.max(1, baseWidth)),
+            scaleY: signY * (nextHeight / Math.max(1, baseHeight))
+        });
+        active.setPositionByOrigin(center, "center", "center");
+        active.setCoords();
+        canvas.setActiveObject(active);
+        canvas.requestRenderAll();
+        scheduleHistoryCapture();
+        setStatus(`Canvas fitted to image: ${nextWidth} x ${nextHeight}`);
     }
 
     function addImageObject(img, asBackground, name) {
@@ -5828,6 +5892,7 @@
             const flipYBtn = document.getElementById("composer-flip-y-btn");
             const warpBtn = document.getElementById("composer-warp-btn");
             const coverCanvasBtn = document.getElementById("composer-cover-canvas-btn");
+            const fitCanvasToImageBtn = document.getElementById("composer-fit-canvas-to-image-btn");
             const exportBtn = document.getElementById("composer-export-btn");
             const exportLayerBtn = document.getElementById("composer-export-layer-btn");
             const sendImg2ImgBtn = document.getElementById("composer-send-img2img-btn");
@@ -5895,6 +5960,10 @@
             coverCanvasBtn?.addEventListener("click", () => {
                 disableDrawingMode(true);
                 coverActiveImageToCanvas();
+            });
+            fitCanvasToImageBtn?.addEventListener("click", () => {
+                disableDrawingMode(true);
+                fitCanvasToActiveImage();
             });
 
             canvas.on("selection:created", syncTextColorControlFromSelection);

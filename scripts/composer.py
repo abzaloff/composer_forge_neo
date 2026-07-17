@@ -167,6 +167,18 @@ COMPOSER_HTML = """
                     <path d="M13 13V9.8"></path>
                 </svg>
             </button>
+            <button id="composer-fit-canvas-to-image-btn" class="composer-btn composer-icon-btn" type="button" title="Fit canvas to image" aria-label="Fit canvas to image">
+                <svg class="composer-toolbar-icon" viewBox="0 0 16 16" aria-hidden="true">
+                    <path d="M3 3l3.4 3.4"></path>
+                    <path d="M6.4 3.2v3.2H3.2"></path>
+                    <path d="M13 3 9.6 6.4"></path>
+                    <path d="M9.6 3.2v3.2h3.2"></path>
+                    <path d="M3 13l3.4-3.4"></path>
+                    <path d="M6.4 12.8V9.6H3.2"></path>
+                    <path d="M13 13 9.6 9.6"></path>
+                    <path d="M9.6 12.8V9.6h3.2"></path>
+                </svg>
+            </button>
             <button id="composer-undo-btn" class="composer-btn composer-history-btn" type="button" title="Undo" aria-label="Undo">
                 <span class="composer-history-glyph" aria-hidden="true">&#8630;</span>
             </button>
