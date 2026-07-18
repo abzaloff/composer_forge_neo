@@ -26,6 +26,7 @@
     let mosaicSourceObject = null;
     let lastSelectedImageObject = null;
     let mosaicOverlapPreviewObjects = [];
+    let mosaicOverlapPreviewSuspended = false;
     let currentTextColor = "#ffffff";
     let currentTextFontFamily = "Arial";
     let currentTextFontWeight = "400";
@@ -2511,6 +2512,7 @@
     }
 
     function syncMosaicOverlapPreview() {
+        if (mosaicOverlapPreviewSuspended) return;
         clearMosaicOverlapPreview();
         if (!canvas || !window.fabric?.Line || !window.fabric?.util?.transformPoint) return;
 
@@ -5426,12 +5428,15 @@
         const prevWrapperWidth = wrapper?.style.width || "";
         const prevWrapperHeight = wrapper?.style.height || "";
         const prevWrapperMargin = wrapper?.style.margin || "";
-        const internalVisibility = canvas.getObjects().filter(isInternalComposerObject).map((obj) => ({
-            obj,
-            visible: obj.visible
-        }));
+        let internalVisibility = [];
 
         try {
+            mosaicOverlapPreviewSuspended = true;
+            clearMosaicOverlapPreview();
+            internalVisibility = canvas.getObjects().filter(isInternalComposerObject).map((obj) => ({
+                obj,
+                visible: obj.visible
+            }));
             internalVisibility.forEach(({ obj }) => {
                 obj.visible = false;
             });
@@ -5507,6 +5512,8 @@
                     console.error(restoreErr);
                 }
             }
+            mosaicOverlapPreviewSuspended = false;
+            syncMosaicOverlapPreview();
             canvas.requestRenderAll();
         }
     }
