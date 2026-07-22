@@ -139,6 +139,7 @@ COMPOSER_HTML = """
                 </button>
             </div>
             <button id="composer-remove-bg-btn" class="composer-btn" type="button">Remove BG</button>
+            <button id="composer-mosaic-outpaint-btn" class="composer-btn" type="button" title="Fill empty canvas area with image-edge mosaic">Mosaic</button>
             <button id="composer-layer-up-btn" class="composer-btn" type="button" title="Layer Up">&uarr;</button>
             <button id="composer-layer-down-btn" class="composer-btn" type="button" title="Layer Down">&darr;</button>
             <button id="composer-flip-x-btn" class="composer-btn" type="button" title="Flip Horizontal">&hArr;</button>
@@ -202,8 +203,6 @@ COMPOSER_HTML = """
             <div id="composer-layers-list" class="composer-layers-list"></div>
         </div>
         <div id="composer-mosaic-panel" class="composer-mosaic-panel" aria-label="Mosaic mode">
-            <div class="composer-mosaic-title">Mosaic mode</div>
-            <button id="composer-mosaic-outpaint-btn" class="composer-btn composer-mosaic-action" type="button" title="Fill empty canvas area with image-edge mosaic">Mosaic</button>
             <label class="composer-mosaic-row" for="composer-mosaic-tile-w">
                 <span>Tile W <b id="composer-mosaic-tile-w-value">32</b></span>
                 <input id="composer-mosaic-tile-w" class="composer-mosaic-range" type="range" min="8" max="128" step="4" value="32">

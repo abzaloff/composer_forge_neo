@@ -24,6 +24,7 @@
     let mosaicTileHeight = MOSAIC_TILE_SIZE;
     let mosaicMaskOverlap = 0.1;
     let mosaicSourceObject = null;
+    let mosaicControlsVisible = false;
     let lastSelectedImageObject = null;
     let mosaicOverlapPreviewObjects = [];
     let mosaicOverlapPreviewSuspended = false;
@@ -218,6 +219,16 @@
         if (tileWValue) tileWValue.textContent = String(mosaicTileWidth);
         if (tileHValue) tileHValue.textContent = String(mosaicTileHeight);
         if (overlapValue) overlapValue.textContent = `${Math.round(mosaicMaskOverlap * 100)}%`;
+    }
+
+    function setMosaicControlsVisible(visible) {
+        mosaicControlsVisible = Boolean(visible);
+        const panel = document.getElementById("composer-mosaic-panel");
+        panel?.classList.toggle("is-visible", mosaicControlsVisible);
+        if (!mosaicControlsVisible) {
+            clearMosaicOverlapPreview();
+            canvas?.requestRenderAll?.();
+        }
     }
 
     function refreshMosaicLayerIfPresent() {
@@ -2514,6 +2525,7 @@
     function syncMosaicOverlapPreview() {
         if (mosaicOverlapPreviewSuspended) return;
         clearMosaicOverlapPreview();
+        if (!mosaicControlsVisible) return;
         if (!canvas || !window.fabric?.Line || !window.fabric?.util?.transformPoint) return;
 
         const sourceObj = getLiveMosaicSourceObject();
@@ -2792,7 +2804,9 @@
 
         try {
             flushHistoryCaptureNow();
-            upsertMosaicOutpaintLayer(source, false);
+            if (upsertMosaicOutpaintLayer(source, false)) {
+                setMosaicControlsVisible(true);
+            }
         } catch (err) {
             console.error(err);
             setStatus(`Mosaic failed: ${err?.message || "Unknown error"}`);
@@ -6559,6 +6573,14 @@
             });
             canvas.on("object:modified", (opt) => {
                 if (opt?.target === mosaicSourceObject) syncMosaicOverlapPreview();
+                if (opt?.target?.composerType !== MOSAIC_TYPE && opt?.target?.composerType !== MOSAIC_OVERLAP_PREVIEW_TYPE) {
+                    setMosaicControlsVisible(false);
+                }
+            });
+            canvas.on("object:added", (opt) => {
+                if (opt?.target?.composerType !== MOSAIC_TYPE && opt?.target?.composerType !== MOSAIC_OVERLAP_PREVIEW_TYPE) {
+                    setMosaicControlsVisible(false);
+                }
             });
 
             const ok = bindUploadButtons();
@@ -6623,6 +6645,7 @@
                 mosaicSourceObject = null;
                 lastSelectedImageObject = null;
                 mosaicOverlapPreviewObjects = [];
+                setMosaicControlsVisible(false);
                 resetSceneViewport();
                 canvas.renderAll();
                 setStatus("Scene cleared");
