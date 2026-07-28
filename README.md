@@ -23,6 +23,7 @@ Composer extension for Forge/Neo that helps build scene layouts before Img2Img/I
 - Shared color picker for brush and text/shapes
 - Layer ordering (`up` / `down`)
 - Flip selected objects (horizontal / vertical)
+- Crop images, text, shapes, brush layers, and other user objects by holding `Shift` while dragging a side handle inward
 - Export scene to PNG
 - Export selected layer(s) to transparent PNG (`Export Layer`)
 - Copy scene to clipboard as PNG (`Ctrl+C` / `Cmd+C` or right-click on canvas)
@@ -42,9 +43,13 @@ Composer extension for Forge/Neo that helps build scene layouts before Img2Img/I
 - `Middle Mouse (hold) + Drag` - pan viewport
 - `Z + Mouse Wheel` / `Middle Mouse (hold) + Wheel` - zoom viewport
 - `Shift + Drop` - drop image as background (first file)
+- `Shift + Side Handle Drag` - crop the selected object inward without changing its scale or distorting its content
 
 ## Mouse Actions
 
+- Drag a corner handle - scale the selected object proportionally
+- Drag a side handle - stretch or compress the selected object
+- Hold `Shift` and drag a side handle inward - crop the selected object; dragging beyond its starting edge cannot expand it
 - `Right Click` on canvas - copy scene image to clipboard
 - `Shift + Right Click` on canvas - open native browser context menu
 
@@ -96,6 +101,7 @@ If the issue still persists, recreate the `venv`.
 
 - `Remove BG` works for selected image objects. On first use, the `rembg` model is downloaded automatically, so please wait until the download completes.
 - `Export` saves the whole canvas. `Export Layer` saves the selected object or multi-selection as a trimmed transparent PNG.
+- Cropping text, shapes, brush layers, or warped objects rasterizes their current appearance. Undo restores the original editable object.
 - Shape icons are unified (SVG) for consistent toolbar style.
 
 ## Stable Status

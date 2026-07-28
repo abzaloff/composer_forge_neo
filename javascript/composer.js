@@ -62,6 +62,7 @@
     let pointerDragTargetLockActive = false;
     let pointerDragTargetLockPrevSkipFind = false;
     let shiftMoveAxisLock = null;
+    let shiftCropRasterizing = false;
     let pendingExternalImages = [];
     let warpEditObject = null;
     let warpDragCorner = null;
@@ -690,6 +691,229 @@
         };
     }
 
+    function canShiftCropObject(target) {
+        return !!target
+            && target.type !== "activeSelection"
+            && target.composerType !== MOSAIC_TYPE
+            && !isInternalComposerObject(target);
+    }
+
+    function getSideCropInset(target, transform, controlKey, x, y) {
+        const fabricRef = window.fabric;
+        if (!target || !fabricRef?.util || !fabricRef?.Point) return 0;
+
+        const inverse = fabricRef.util.invertTransform(target.calcTransformMatrix());
+        const start = fabricRef.util.transformPoint(
+            new fabricRef.Point(
+                Number.isFinite(transform?.ex) ? transform.ex : x,
+                Number.isFinite(transform?.ey) ? transform.ey : y
+            ),
+            inverse
+        );
+        const pointer = fabricRef.util.transformPoint(new fabricRef.Point(x, y), inverse);
+
+        if (controlKey === "ml") return pointer.x - start.x;
+        if (controlKey === "mr") return start.x - pointer.x;
+        if (controlKey === "mt") return pointer.y - start.y;
+        if (controlKey === "mb") return start.y - pointer.y;
+        return 0;
+    }
+
+    function rasterizeObjectForCrop(obj, transform) {
+        if (!canvas || !obj || typeof obj.toCanvasElement !== "function") return null;
+
+        if (isTextObject(obj) && obj.isEditing && typeof obj.exitEditing === "function") {
+            obj.exitEditing();
+        }
+
+        let rendered = null;
+        try {
+            rendered = obj.toCanvasElement({
+                multiplier: 1,
+                withoutTransform: true
+            });
+        } catch (err) {
+            console.warn("[Composer] crop rasterize failed", err);
+            return null;
+        }
+        if (!rendered || !rendered.width || !rendered.height) return null;
+
+        const replacement = new window.fabric.Image(rendered, {
+            left: obj.left,
+            top: obj.top,
+            originX: obj.originX,
+            originY: obj.originY,
+            scaleX: obj.scaleX,
+            scaleY: obj.scaleY,
+            angle: obj.angle,
+            flipX: obj.flipX,
+            flipY: obj.flipY,
+            skewX: obj.skewX,
+            skewY: obj.skewY,
+            opacity: obj.opacity,
+            selectable: obj.selectable,
+            evented: obj.evented,
+            hasControls: obj.hasControls,
+            hasBorders: obj.hasBorders,
+            lockMovementX: obj.lockMovementX,
+            lockMovementY: obj.lockMovementY,
+            lockRotation: obj.lockRotation,
+            lockScalingX: obj.lockScalingX,
+            lockScalingY: obj.lockScalingY,
+            name: obj.name || getLayerDisplayName(obj),
+            composerType: "rasterized",
+            cornerStyle: "circle",
+            transparentCorners: false,
+            padding: 4,
+            objectCaching: false
+        });
+
+        shiftCropRasterizing = true;
+        try {
+            insertObjectReplacement(obj, replacement);
+        } finally {
+            shiftCropRasterizing = false;
+        }
+
+        if (obj === lastSelectedImageObject) {
+            lastSelectedImageObject = replacement;
+        }
+        transform.target = replacement;
+        transform.scaleX = replacement.scaleX;
+        transform.scaleY = replacement.scaleY;
+        transform.skewX = replacement.skewX;
+        transform.skewY = replacement.skewY;
+        transform.width = replacement.width * replacement.scaleX;
+        transform.original = window.fabric.util.saveObjectTransform(replacement);
+        return replacement;
+    }
+
+    function cropObjectFromSideControl(transform, controlKey, x, y) {
+        let target = transform?.target;
+        const fabricRef = window.fabric;
+        if (!canShiftCropObject(target) || !fabricRef?.util || !fabricRef?.Point) return false;
+
+        if (target.type !== "image") {
+            if (getSideCropInset(target, transform, controlKey, x, y) <= 0.001) {
+                return false;
+            }
+            target = rasterizeObjectForCrop(target, transform);
+            if (!target) return false;
+        }
+
+        if (!transform.__composerCropSession) {
+            const matrix = target.calcTransformMatrix();
+            const inverse = fabricRef.util.invertTransform(matrix);
+            const startX = Number.isFinite(transform.ex) ? transform.ex : x;
+            const startY = Number.isFinite(transform.ey) ? transform.ey : y;
+            transform.__composerCropSession = {
+                matrix,
+                inverse,
+                center: target.getCenterPoint(),
+                startPointer: fabricRef.util.transformPoint(
+                    new fabricRef.Point(startX, startY),
+                    inverse
+                ),
+                width: Math.max(1, Number(target.width) || 1),
+                height: Math.max(1, Number(target.height) || 1),
+                cropX: Math.max(0, Number(target.cropX) || 0),
+                cropY: Math.max(0, Number(target.cropY) || 0)
+            };
+        }
+
+        const session = transform.__composerCropSession;
+        const pointer = fabricRef.util.transformPoint(
+            new fabricRef.Point(x, y),
+            session.inverse
+        );
+        let inset = 0;
+        let centerDx = 0;
+        let centerDy = 0;
+        let nextWidth = session.width;
+        let nextHeight = session.height;
+        let nextCropX = session.cropX;
+        let nextCropY = session.cropY;
+
+        if (controlKey === "ml") {
+            inset = Math.max(0, Math.min(session.width - 1, pointer.x - session.startPointer.x));
+            nextWidth = session.width - inset;
+            nextCropX = session.cropX + inset;
+            centerDx = inset / 2;
+        } else if (controlKey === "mr") {
+            inset = Math.max(0, Math.min(session.width - 1, session.startPointer.x - pointer.x));
+            nextWidth = session.width - inset;
+            centerDx = -inset / 2;
+        } else if (controlKey === "mt") {
+            inset = Math.max(0, Math.min(session.height - 1, pointer.y - session.startPointer.y));
+            nextHeight = session.height - inset;
+            nextCropY = session.cropY + inset;
+            centerDy = inset / 2;
+        } else if (controlKey === "mb") {
+            inset = Math.max(0, Math.min(session.height - 1, session.startPointer.y - pointer.y));
+            nextHeight = session.height - inset;
+            centerDy = -inset / 2;
+        } else {
+            return false;
+        }
+
+        const nextCenter = new fabricRef.Point(
+            session.center.x + session.matrix[0] * centerDx + session.matrix[2] * centerDy,
+            session.center.y + session.matrix[1] * centerDx + session.matrix[3] * centerDy
+        );
+        const changed = Math.abs((Number(target.width) || 0) - nextWidth) > 0.001
+            || Math.abs((Number(target.height) || 0) - nextHeight) > 0.001
+            || Math.abs((Number(target.cropX) || 0) - nextCropX) > 0.001
+            || Math.abs((Number(target.cropY) || 0) - nextCropY) > 0.001;
+
+        target.set({
+            width: nextWidth,
+            height: nextHeight,
+            cropX: nextCropX,
+            cropY: nextCropY,
+            dirty: true
+        });
+        target.setPositionByOrigin(nextCenter, "center", "center");
+        target.setCoords();
+        return changed;
+    }
+
+    function installShiftCropControls() {
+        const fabricRef = window.fabric;
+        const objectProto = fabricRef?.Object?.prototype;
+        if (!objectProto || objectProto.__composerShiftCropControlsInstalled) return;
+
+        const controls = { ...(objectProto.controls || {}) };
+        ["ml", "mr", "mt", "mb"].forEach((controlKey) => {
+            const baseControl = controls[controlKey];
+            if (!baseControl || !fabricRef.Control) return;
+
+            const baseActionHandler = baseControl.actionHandler;
+            const baseGetActionName = baseControl.getActionName;
+            controls[controlKey] = new fabricRef.Control({
+                ...baseControl,
+                actionHandler(eventData, transform, x, y) {
+                    if (transform?.action === "crop") {
+                        return cropObjectFromSideControl(transform, controlKey, x, y);
+                    }
+                    return typeof baseActionHandler === "function"
+                        ? baseActionHandler.call(this, eventData, transform, x, y)
+                        : false;
+                },
+                getActionName(eventData, control, target) {
+                    if (eventData?.shiftKey && canShiftCropObject(target)) {
+                        return "crop";
+                    }
+                    return typeof baseGetActionName === "function"
+                        ? baseGetActionName.call(this, eventData, control, target)
+                        : baseControl.actionName;
+                }
+            });
+        });
+
+        objectProto.controls = controls;
+        objectProto.__composerShiftCropControlsInstalled = true;
+    }
+
     function setWarpControls(obj) {
         if (!obj || !window.fabric) return;
         if (!obj.__composerWarpPrevInteraction) {
@@ -918,7 +1142,7 @@
         if (!silent) setStatus("Warp mode off");
     }
 
-    function insertWarpReplacement(original, replacement) {
+    function insertObjectReplacement(original, replacement) {
         if (!canvas || !original || !replacement) return null;
         const objects = canvas.getObjects();
         const index = objects.indexOf(original);
@@ -992,7 +1216,52 @@
             objectCaching: false
         });
         replacement.warpCorners = defaultWarpCorners(replacement.width, replacement.height);
-        return insertWarpReplacement(obj, replacement);
+        return insertObjectReplacement(obj, replacement);
+    }
+
+    function getVisibleImageElementForWarp(obj) {
+        const element = obj?._element;
+        if (!element) return null;
+
+        const sourceWidth = Number(element.naturalWidth || element.videoWidth || element.width) || 0;
+        const sourceHeight = Number(element.naturalHeight || element.videoHeight || element.height) || 0;
+        const visibleWidth = Number(obj.width) || sourceWidth;
+        const visibleHeight = Number(obj.height) || sourceHeight;
+        const cropX = Math.max(0, Number(obj.cropX) || 0);
+        const cropY = Math.max(0, Number(obj.cropY) || 0);
+        const EPS = 0.001;
+        const isCropped = cropX > EPS
+            || cropY > EPS
+            || visibleWidth < sourceWidth - EPS
+            || visibleHeight < sourceHeight - EPS;
+
+        if (!isCropped || !sourceWidth || !sourceHeight || !visibleWidth || !visibleHeight) {
+            return element;
+        }
+
+        const rendered = document.createElement("canvas");
+        rendered.width = Math.max(1, Math.ceil(visibleWidth));
+        rendered.height = Math.max(1, Math.ceil(visibleHeight));
+        const ctx = rendered.getContext("2d");
+        if (!ctx) return element;
+
+        try {
+            ctx.drawImage(
+                element,
+                cropX,
+                cropY,
+                visibleWidth,
+                visibleHeight,
+                0,
+                0,
+                rendered.width,
+                rendered.height
+            );
+            return rendered;
+        } catch (err) {
+            console.warn("[Composer] cropped warp source build failed", err);
+            return element;
+        }
     }
 
     function convertObjectToWarpImage(obj) {
@@ -1000,15 +1269,17 @@
         if (obj.type === "warpImage") return obj;
         if (obj.type !== "image") return rasterizeObjectForWarp(obj);
 
-        const element = obj._element;
+        const element = getVisibleImageElementForWarp(obj);
         if (!element) return null;
 
         const props = obj.toObject(["name", "composerType"]);
+        props.cropX = 0;
+        props.cropY = 0;
         props.warpCorners = obj.warpCorners
             ? cloneWarpCorners(obj.warpCorners)
             : defaultWarpCorners(obj.width, obj.height);
         const replacement = new window.fabric.WarpImage(element, props);
-        return insertWarpReplacement(obj, replacement);
+        return insertObjectReplacement(obj, replacement);
     }
 
     function toggleWarpModeForActiveObject() {
@@ -1729,6 +2000,7 @@
         if (!canvas || canvas.__composerHistoryBound) return;
 
         const onHistoryChange = (e) => {
+            if (shiftCropRasterizing) return;
             if (isInternalComposerObject(e?.target)) return;
             scheduleHistoryCapture();
         };
@@ -1742,6 +2014,10 @@
                 top: target.top,
                 scaleX: target.scaleX,
                 scaleY: target.scaleY,
+                width: target.width,
+                height: target.height,
+                cropX: target.cropX,
+                cropY: target.cropY,
                 angle: target.angle,
                 skewX: target.skewX,
                 skewY: target.skewY
@@ -1760,10 +2036,14 @@
                 || changed(before.scaleY, target.scaleY)
                 || changed(before.skewX, target.skewX)
                 || changed(before.skewY, target.skewY);
+            const cropped = changed(before.width, target.width)
+                || changed(before.height, target.height)
+                || changed(before.cropX, target.cropX)
+                || changed(before.cropY, target.cropY);
             const rotated = changed(before.angle, target.angle);
 
             // Ignore pure translate moves in undo stack.
-            return scaledOrSkewed || rotated || !moved;
+            return scaledOrSkewed || cropped || rotated || !moved;
         };
 
         canvas.on("object:added", onHistoryChange);
@@ -6472,6 +6752,7 @@
             }
 
             installWarpImageClass();
+            installShiftCropControls();
 
             try {
                 canvas = new fabric.Canvas("forge-composer-canvas", {
