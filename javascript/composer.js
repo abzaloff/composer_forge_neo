@@ -5990,6 +5990,41 @@
         return null;
     }
 
+    function findTopLevelTabButton(tabIndex, labelRegex) {
+        const tabsRoot = document.getElementById("tabs");
+        if (tabsRoot) {
+            const nav = tabsRoot.querySelector(":scope > .tab-nav, :scope > div");
+            const navButtons = nav ? [...nav.querySelectorAll("button")] : [];
+            if (labelRegex) {
+                const match = navButtons.find((el) => labelRegex.test((el.textContent || "").trim()));
+                if (match) return match;
+            }
+            if (Number.isInteger(tabIndex) && navButtons[tabIndex]) {
+                return navButtons[tabIndex];
+            }
+        }
+        return labelRegex ? findTabButton(labelRegex) : null;
+    }
+
+    function findImg2ImgSubTabButton(tabIndex, labelRegex) {
+        const modeRoot = document.getElementById("mode_img2img");
+        if (modeRoot) {
+            const nav = modeRoot.querySelector(":scope > .tab-nav, :scope > div");
+            const navButtons = nav ? [...nav.querySelectorAll("button")] : [];
+            if (labelRegex) {
+                const exactMatch = navButtons.find((el) => labelRegex.test((el.textContent || "").trim()));
+                if (exactMatch) return exactMatch;
+            }
+            if (Number.isInteger(tabIndex) && navButtons[tabIndex]) {
+                return navButtons[tabIndex];
+            }
+        }
+        if (labelRegex) {
+            return findTabButtonInScopes(["#mode_img2img"], labelRegex);
+        }
+        return null;
+    }
+
     function findBestFileInput(selectors, opts = {}) {
         const allowGenericFallback = opts.allowGenericFallback !== false;
         for (const selector of selectors) {
@@ -6474,6 +6509,7 @@
 
     function findInpaintUploadMaskInput(imageInput) {
         const selectors = [
+            '#img_inpaint_mask input[type="file"]',
             '#img2img_inpaint_upload [id*="mask"] input[type="file"]',
             '#img2img_inpaint_upload_tab [id*="mask"] input[type="file"]',
             '#inpaint_upload [id*="mask"] input[type="file"]',
@@ -6517,20 +6553,25 @@
         let findInputOpts = { allowGenericFallback: true };
 
         if (targetMode === "img2img") {
-            tabButton = findTabButton(/\bimg2img\b/i);
+            const img2imgTab = findTopLevelTabButton(1, /\bimg2img\b/i);
+            if (img2imgTab) {
+                img2imgTab.click();
+                await new Promise((r) => setTimeout(r, 250));
+            }
+            tabButton = findImg2ImgSubTabButton(0, /^img2img$/i) || img2imgTab;
             inputSelectorCandidates = [
                 '#img2img_image input[type="file"]',
                 '#img2img_tab input[type="file"]',
                 '#img2img input[type="file"]'
             ];
         } else if (targetMode === "inpaint") {
-            const img2imgTab = findTabButton(/\bimg2img\b/i);
+            const img2imgTab = findTopLevelTabButton(1, /\bimg2img\b/i);
             if (img2imgTab) {
                 img2imgTab.click();
                 await new Promise((r) => setTimeout(r, 250));
             }
 
-            tabButton = findTabButton(/\binpaint\b/i);
+            tabButton = findImg2ImgSubTabButton(2, /^inpaint$/i);
             inputSelectorCandidates = [
                 '#img2img_inpaint input[type="file"]',
                 '#img2maskimg input[type="file"]',
@@ -6539,14 +6580,15 @@
                 '#img2img input[type="file"]'
             ];
         } else if (targetMode === "inpaint_upload") {
-            const img2imgTab = findTabButton(/\bimg2img\b/i);
+            const img2imgTab = findTopLevelTabButton(1, /\bimg2img\b/i);
             if (img2imgTab) {
                 img2imgTab.click();
                 await new Promise((r) => setTimeout(r, 250));
             }
 
-            tabButton = findTabButton(/\binpaint\s*upload\b/i);
+            tabButton = findImg2ImgSubTabButton(4, /^inpaint\s*upload$/i);
             inputSelectorCandidates = [
+                '#img_inpaint_base input[type="file"]',
                 '#img2img_inpaint_upload input[type="file"]',
                 '#img2img_inpaint_upload_tab input[type="file"]',
                 '#inpaint_upload input[type="file"]',
@@ -6556,7 +6598,7 @@
             ];
         } else if (targetMode === "controlnet_i2i") {
             const controlNetScopes = ['#img2img', '#img2img_tab', '[id*="img2img"]'];
-            const img2imgTab = findTabButton(/\bimg2img\b/i);
+            const img2imgTab = findTopLevelTabButton(1, /\bimg2img\b/i);
             if (img2imgTab) {
                 img2imgTab.click();
                 await new Promise((r) => setTimeout(r, 300));
@@ -6587,7 +6629,7 @@
             await new Promise((r) => setTimeout(r, 120));
         } else if (targetMode === "controlnet_t2i") {
             const controlNetScopes = ['#txt2img', '#txt2img_tab', '[id*="txt2img"]'];
-            const txt2imgTab = findTabButton(/\btxt2img\b/i);
+            const txt2imgTab = findTopLevelTabButton(0, /\btxt2img\b/i);
             if (txt2imgTab) {
                 txt2imgTab.click();
                 await new Promise((r) => setTimeout(r, 300));
