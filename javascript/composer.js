@@ -12,11 +12,13 @@
     const MIN_SCENE_SIZE = 64;
     const MAX_SCENE_SIZE = 3072;
     const SCENE_STEP = 64;
+    const SCENE_FINE_STEP = 8;
     const MOSAIC_TILE_SIZE = 32;
     const MOSAIC_TYPE = "mosaicOutpaint";
     const MOSAIC_OVERLAP_PREVIEW_TYPE = "mosaicOverlapPreview";
     let sceneWidth = 1024;
     let sceneHeight = 1024;
+    let sceneStep = SCENE_STEP;
     let stageHeight = STAGE_DEFAULT_HEIGHT;
     let displayScale = 1;
     let gridDivisions = 1;
@@ -1431,8 +1433,13 @@
         const prevViewportTransform = Array.isArray(canvas.viewportTransform)
             ? canvas.viewportTransform.slice()
             : null;
-        const nextSceneWidth = clampToStepSize(snapshot.sceneWidth ?? sceneWidth);
-        const nextSceneHeight = clampToStepSize(snapshot.sceneHeight ?? sceneHeight);
+        const rawSnapWidth = Number(snapshot.sceneWidth ?? sceneWidth);
+        const rawSnapHeight = Number(snapshot.sceneHeight ?? sceneHeight);
+        if ((rawSnapWidth % SCENE_STEP !== 0) || (rawSnapHeight % SCENE_STEP !== 0)) {
+            sceneStep = SCENE_FINE_STEP;
+        }
+        const nextSceneWidth = clampToStepSize(rawSnapWidth);
+        const nextSceneHeight = clampToStepSize(rawSnapHeight);
         const sizeChanged = nextSceneWidth !== sceneWidth || nextSceneHeight !== sceneHeight;
 
         canvas.discardActiveObject();
@@ -2326,10 +2333,11 @@
         return { x: viewport.width / 2, y: viewport.height / 2 };
     }
 
-    function clampToStepSize(value) {
+    function clampToStepSize(value, step = sceneStep) {
+        const activeStep = Number(step) > 0 ? Number(step) : SCENE_STEP;
         const numeric = Number(value) || MIN_SCENE_SIZE;
         const clamped = Math.max(MIN_SCENE_SIZE, Math.min(MAX_SCENE_SIZE, numeric));
-        return Math.round(clamped / SCENE_STEP) * SCENE_STEP;
+        return Math.round(clamped / activeStep) * activeStep;
     }
 
     function clampStageHeight(value) {
@@ -2426,16 +2434,48 @@
         const wVal = document.getElementById("composer-width-value");
         const hVal = document.getElementById("composer-height-value");
 
-        if (wVal) wVal.textContent = String(sceneWidth);
-        if (hVal) hVal.textContent = String(sceneHeight);
+        if (wVal) {
+            if ("value" in wVal) {
+                wVal.value = String(sceneWidth);
+            } else {
+                wVal.textContent = String(sceneWidth);
+            }
+        }
+        if (hVal) {
+            if ("value" in hVal) {
+                hVal.value = String(sceneHeight);
+            } else {
+                hVal.textContent = String(sceneHeight);
+            }
+        }
     }
 
     function syncCanvasSizeControls() {
         const widthSlider = document.getElementById("composer-width-slider");
         const heightSlider = document.getElementById("composer-height-slider");
+        const widthInput = document.getElementById("composer-width-value");
+        const heightInput = document.getElementById("composer-height-value");
+        const stepToggleBtn = document.getElementById("composer-step-toggle-btn");
 
-        if (widthSlider) widthSlider.value = String(sceneWidth);
-        if (heightSlider) heightSlider.value = String(sceneHeight);
+        if (widthSlider) {
+            widthSlider.step = String(sceneStep);
+            widthSlider.value = String(sceneWidth);
+        }
+        if (heightSlider) {
+            heightSlider.step = String(sceneStep);
+            heightSlider.value = String(sceneHeight);
+        }
+        if (widthInput && "step" in widthInput) {
+            widthInput.step = String(sceneStep);
+        }
+        if (heightInput && "step" in heightInput) {
+            heightInput.step = String(sceneStep);
+        }
+        if (stepToggleBtn) {
+            const isFine = sceneStep === SCENE_FINE_STEP;
+            stepToggleBtn.classList.toggle("is-active", isFine);
+            stepToggleBtn.setAttribute("aria-pressed", isFine ? "true" : "false");
+        }
         updateSizeLabels();
     }
 
@@ -2460,6 +2500,9 @@
     function bindCanvasSizeControls() {
         const widthSlider = document.getElementById("composer-width-slider");
         const heightSlider = document.getElementById("composer-height-slider");
+        const widthInput = document.getElementById("composer-width-value");
+        const heightInput = document.getElementById("composer-height-value");
+        const stepToggleBtn = document.getElementById("composer-step-toggle-btn");
 
         if (!widthSlider || !heightSlider) {
             setStatus("Size controls not found");
@@ -2479,6 +2522,70 @@
             heightSlider.value = String(next);
             applySceneSize(sceneWidth, next);
         });
+
+        const bindNumberInput = (inputEl, isWidth) => {
+            if (!inputEl || !("value" in inputEl)) return;
+
+            const commit = () => {
+                const next = clampToStepSize(inputEl.value);
+                inputEl.value = String(next);
+                if (isWidth) {
+                    applySceneSize(next, sceneHeight);
+                } else {
+                    applySceneSize(sceneWidth, next);
+                }
+            };
+
+            inputEl.addEventListener("change", commit);
+            inputEl.addEventListener("blur", commit);
+            inputEl.addEventListener("keydown", (e) => {
+                if (e.key === "Enter") {
+                    e.preventDefault();
+                    commit();
+                    inputEl.blur();
+                }
+            });
+            inputEl.addEventListener("input", () => {
+                const raw = Number(inputEl.value);
+                if (
+                    Number.isFinite(raw)
+                    && raw >= MIN_SCENE_SIZE
+                    && raw <= MAX_SCENE_SIZE
+                    && raw % sceneStep === 0
+                ) {
+                    if (isWidth) {
+                        applySceneSize(raw, sceneHeight);
+                    } else {
+                        applySceneSize(sceneWidth, raw);
+                    }
+                }
+            });
+            inputEl.addEventListener("wheel", (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                const delta = e.deltaY < 0 ? sceneStep : -sceneStep;
+                const base = Number(inputEl.value) || (isWidth ? sceneWidth : sceneHeight);
+                const next = clampToStepSize(base + delta);
+                inputEl.value = String(next);
+                if (isWidth) {
+                    applySceneSize(next, sceneHeight);
+                } else {
+                    applySceneSize(sceneWidth, next);
+                }
+            }, { passive: false });
+        };
+
+        bindNumberInput(widthInput, true);
+        bindNumberInput(heightInput, false);
+
+        if (stepToggleBtn) {
+            stepToggleBtn.addEventListener("click", () => {
+                sceneStep = sceneStep === SCENE_FINE_STEP ? SCENE_STEP : SCENE_FINE_STEP;
+                syncCanvasSizeControls();
+                applySceneSize(sceneWidth, sceneHeight);
+                setStatus(`Resolution step: ${sceneStep}px`);
+            });
+        }
     }
 
     function getComposerBaseUrl() {

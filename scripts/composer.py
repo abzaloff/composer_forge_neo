@@ -72,13 +72,15 @@ COMPOSER_HTML = """
                 W:
             </label>
             <input id="composer-width-slider" class="composer-slider" type="range" min="64" max="3072" step="64" value="1024">
-            <span id="composer-width-value" class="composer-size-value">1024</span>
+            <input id="composer-width-value" class="composer-size-input" type="number" min="64" max="3072" step="64" value="1024" title="Canvas width" aria-label="Canvas width">
 
             <label class="composer-size-label" for="composer-height-slider">
                 H:
             </label>
             <input id="composer-height-slider" class="composer-slider" type="range" min="64" max="3072" step="64" value="1024">
-            <span id="composer-height-value" class="composer-size-value">1024</span>
+            <input id="composer-height-value" class="composer-size-input" type="number" min="64" max="3072" step="64" value="1024" title="Canvas height" aria-label="Canvas height">
+
+            <button id="composer-step-toggle-btn" class="composer-step-toggle-btn" type="button" title="Toggle 8px resolution step" aria-label="Toggle 8px resolution step" aria-pressed="false">8px</button>
         </div>
 
         <button id="composer-send-img2img-btn" class="composer-btn composer-btn-primary" type="button">Send to Img2Img</button>
