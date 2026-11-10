@@ -73,7 +73,43 @@
     const CLEAN_MASK_TYPE = "cleanMask";
     const CLEAN_MASK_CLOSED_FILL = "rgba(255, 48, 48, 0.46)";
 
+    function translateComposerText(text) {
+        if (!text || typeof text !== "string") return text;
+        const dict = window.localization;
+        if (!dict || typeof dict !== "object") return text;
+        const trimmed = text.trim();
+        if (dict[text] !== undefined) return dict[text];
+        if (dict[trimmed] !== undefined) return dict[trimmed];
+        const prefixMatch = trimmed.match(/^([^:]+:)(\s*.+)$/);
+        if (prefixMatch) {
+            const key = prefixMatch[1].trim();
+            if (dict[key] !== undefined) {
+                return `${dict[key]}${prefixMatch[2]}`;
+            }
+        }
+        return text;
+    }
+
+    function localizeComposerDom() {
+        const root = document.getElementById("forge-composer-root");
+        if (!root || !window.localization) return;
+        root.querySelectorAll("[title], [aria-label]").forEach((el) => {
+            const title = el.getAttribute("title");
+            if (title) {
+                const translatedTitle = translateComposerText(title);
+                if (translatedTitle !== title) el.setAttribute("title", translatedTitle);
+            }
+            const ariaLabel = el.getAttribute("aria-label");
+            if (ariaLabel) {
+                const translatedAria = translateComposerText(ariaLabel);
+                if (translatedAria !== ariaLabel) el.setAttribute("aria-label", translatedAria);
+            }
+        });
+    }
+
     function setStatus(text) {
+        localizeComposerDom();
+        text = translateComposerText(text);
         const el = document.getElementById("composer-status");
         if (el) {
             el.textContent = text;
