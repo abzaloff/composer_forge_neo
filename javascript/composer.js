@@ -5715,6 +5715,7 @@
             : [1, 0, 0, 1, 0, 0];
         const prevWidth = canvas.getWidth();
         const prevHeight = canvas.getHeight();
+        const prevRetinaScaling = canvas.enableRetinaScaling;
         const canvasEl = document.getElementById("forge-composer-canvas");
         const prevCanvasElWidth = canvasEl?.style.width || "";
         const prevCanvasElHeight = canvasEl?.style.height || "";
@@ -5751,6 +5752,7 @@
                 (prevViewportTransform[5] || 0) * sy
             ];
 
+            canvas.enableRetinaScaling = false;
             canvas.setViewportTransform(exportViewportTransform);
             canvas.setWidth(sceneWidth);
             canvas.setHeight(sceneHeight);
@@ -5776,6 +5778,7 @@
             setStatus("Export failed");
             return null;
         } finally {
+            canvas.enableRetinaScaling = prevRetinaScaling;
             canvas.setWidth(prevWidth);
             canvas.setHeight(prevHeight);
             canvas.setViewportTransform(prevViewportTransform);
